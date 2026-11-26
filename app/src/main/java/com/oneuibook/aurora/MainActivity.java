@@ -37,7 +37,7 @@ import java.util.Locale;
  * - Chrome Web Store CRX3 extensions, PWA installation, and Cloud Sync
  */
 public final class MainActivity extends Activity implements TabManager.Listener, SafariBar.Listener {
-    static final String VERSION = "9.5.4";
+    static final String VERSION = "9.5.5";
     private static final int REQ_FILE_CHOOSER = 7001, REQ_SYNC_CREATE = 7002, REQ_SYNC_OPEN = 7003;
 
     FrameLayout root;
@@ -178,10 +178,13 @@ public final class MainActivity extends Activity implements TabManager.Listener,
     @Override public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         DisplayMetrics dm = getResources().getDisplayMetrics();
+        Ui.density = dm.density > 0 ? dm.density : Ui.density;
+        Ui.scaledDensity = dm.scaledDensity > 0 ? dm.scaledDensity : Ui.scaledDensity;
         Ui.screenW = dm.widthPixels > 0 ? dm.widthPixels : Ui.screenW;
         Ui.screenH = dm.heightPixels > 0 ? dm.heightPixels : Ui.screenH;
         Ui.dark = (newConfig.uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
         applyUiSettings();
+        if (root != null) root.post(this::applyUiSettings);
     }
 
     private void applyTopClearance() {
@@ -194,6 +197,9 @@ public final class MainActivity extends Activity implements TabManager.Listener,
         }
         ((FrameLayout.LayoutParams) findBar.getLayoutParams()).topMargin = topInset + Ui.dp(8);
         ((FrameLayout.LayoutParams) translateBanner.getLayoutParams()).topMargin = topInset + Ui.dp(10);
+        if (suggestionOverlay != null && suggestionOverlay.getChildCount() > 0) {
+            suggestionOverlay.getChildAt(0).setPadding(Ui.dp(16), topInset + Ui.dp(12), Ui.dp(16), Ui.dp(120));
+        }
     }
 
     @Override protected void onNewIntent(Intent intent) {
@@ -217,6 +223,10 @@ public final class MainActivity extends Activity implements TabManager.Listener,
         applyTopClearance();
         backdrop.setBackgroundColor(Ui.bg());
         if (statusBarBg != null) statusBarBg.setBackgroundColor(Ui.bg());
+        if (findBar != null) {
+            findBar.setBackground(Ui.roundStroke(Ui.sheetTint(), Ui.glassStroke(), 1f, 100));
+            if (findInput != null) { findInput.setTextColor(Ui.text()); findInput.setHintTextColor(Ui.text2()); }
+        }
         startPage.rebuild();
         if (tabs != null) {
             safariBar.updateTabList(tabs.activeList(), tabs.activeIndex());
@@ -230,8 +240,8 @@ public final class MainActivity extends Activity implements TabManager.Listener,
     private void applySystemBars() {
         WindowInsetsController ctrl = getWindow().getInsetsController();
         if (ctrl != null) {
-            int lightFlag = Ui.isDarkSurface() ? 0 : WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS;
-            ctrl.setSystemBarsAppearance(lightFlag, WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS);
+            int mask = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+            ctrl.setSystemBarsAppearance(Ui.isDarkSurface() ? 0 : mask, mask);
         }
     }
 

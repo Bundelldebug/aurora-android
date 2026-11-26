@@ -255,8 +255,8 @@ final class TabOverviewView extends FrameLayout {
             addRect.set(pad, top, pad + h, bottom);
             float doneW = Ui.dpf(70);
             doneRect.set(W - pad - doneW, top, W - pad, bottom);
-            float segW = Math.min(Ui.dpf(204), doneRect.left - addRect.right - Ui.dpf(20));
-            float segL = (W - segW) / 2f;
+            float segW = Math.min(Ui.dpf(204), Math.max(Ui.dpf(110), doneRect.left - addRect.right - Ui.dpf(16)));
+            float segL = (addRect.right + doneRect.left - segW) / 2f;
             segRect.set(segL, top, segL + segW, bottom);
         }
 

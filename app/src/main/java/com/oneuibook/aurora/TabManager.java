@@ -570,6 +570,9 @@ final class TabManager {
             @Override public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
                 Tab child = newTab(t.isPrivate, null, true);
                 ensureWebView(child);
+                host.removeAllViews();
+                host.addView(child.webView, new FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
                 WebView.WebViewTransport transport = (WebView.WebViewTransport) resultMsg.obj;
                 transport.setWebView(child.webView);
                 resultMsg.sendToTarget();

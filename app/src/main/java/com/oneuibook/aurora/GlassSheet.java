@@ -74,7 +74,7 @@ final class GlassSheet extends FrameLayout {
                 closing = false;
                 open = false;
                 setVisibility(GONE);
-                content.removeAllViews();
+                clearSheetContent();
                 if (onRestoreSource != null) {
                     Runnable r = onRestoreSource;
                     onRestoreSource = null;
@@ -84,16 +84,27 @@ final class GlassSheet extends FrameLayout {
         };
     }
 
+    private void clearSheetContent() {
+        for (int i = 0; i < content.getChildCount(); i++) {
+            View ch = content.getChildAt(i);
+            if (ch instanceof WebView) {
+                try { ((WebView) ch).destroy(); } catch (Throwable ignored) {}
+            }
+        }
+        content.removeAllViews();
+    }
+
     boolean isOpen() { return open && !closing; }
 
     void dismiss() {
         if (!open || closing) return;
+        SecurityGuard.stopWatchingVpn(getContext());
         closing = true;
         if ("robolectric".equals(android.os.Build.FINGERPRINT)) {
             closing = false;
             open = false;
             setVisibility(GONE);
-            content.removeAllViews();
+            clearSheetContent();
             if (onRestoreSource != null) {
                 Runnable r = onRestoreSource;
                 onRestoreSource = null;
@@ -107,10 +118,12 @@ final class GlassSheet extends FrameLayout {
     }
 
     private void showBuilt(RectF fromAnchor, int iconId, Runnable restoreSource) {
-        if (onRestoreSource != null && restoreSource != onRestoreSource) {
-            onRestoreSource.run();
-        }
         boolean wasOpen = open && !closing;
+        if (fromAnchor != null && !fromAnchor.isEmpty() && onRestoreSource != null && restoreSource != onRestoreSource) {
+            Runnable prev = onRestoreSource;
+            onRestoreSource = null;
+            prev.run();
+        }
         open = true;
         closing = false;
         if (fromAnchor != null && !fromAnchor.isEmpty()) {
@@ -134,10 +147,10 @@ final class GlassSheet extends FrameLayout {
         }
         if (wasOpen) {
             // Smooth in-place content crossfade when navigating to a sub-sheet
-            scroll.setAlpha(0f);
-            scroll.animate().alpha(1f).setDuration(180).setInterpolator(Ui.EMPHASIZED).start();
             morph.snap(1f);
             onMorphUpdate();
+            scroll.setAlpha(0f);
+            scroll.animate().alpha(1f).setDuration(180).setInterpolator(Ui.EMPHASIZED).start();
         } else {
             morph.stiffness = 340f;
             morph.dampingRatio = 0.94f;

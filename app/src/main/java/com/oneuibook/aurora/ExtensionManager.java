@@ -90,7 +90,7 @@ final class ExtensionManager {
     }
 
     static final List<Ext> installed = new ArrayList<>();
-    private static final Set<String> dnrBlockedCache = new HashSet<>();
+    private static volatile Set<String> dnrBlockedCache = java.util.Collections.emptySet();
     private static boolean loaded;
 
     static File extRoot(Context c) {
@@ -117,7 +117,7 @@ final class ExtensionManager {
         if (loaded) return;
         loaded = true;
         installed.clear();
-        dnrBlockedCache.clear();
+        dnrBlockedCache = java.util.Collections.emptySet();
         SharedPreferences sp = c.getSharedPreferences("aurora_exts", Context.MODE_PRIVATE);
         File root = extRoot(c);
         File[] dirs = root.listFiles();
@@ -160,17 +160,19 @@ final class ExtensionManager {
         rebuildDnrIndex();
     }
 
-    private static void rebuildDnrIndex() {
-        dnrBlockedCache.clear();
+    private static synchronized void rebuildDnrIndex() {
+        Set<String> next = new HashSet<>();
         for (Ext e : installed) {
-            if (e.enabled) dnrBlockedCache.addAll(e.dnrBlockSubstrings);
+            if (e.enabled) next.addAll(e.dnrBlockSubstrings);
         }
+        dnrBlockedCache = java.util.Collections.unmodifiableSet(next);
     }
 
     static boolean isBlockedByDnr(String url) {
-        if (url == null || dnrBlockedCache.isEmpty()) return false;
+        Set<String> snap = dnrBlockedCache;
+        if (url == null || snap.isEmpty()) return false;
         String low = url.toLowerCase(Locale.ROOT);
-        for (String rule : dnrBlockedCache) {
+        for (String rule : snap) {
             if (!rule.isEmpty() && low.contains(rule)) return true;
         }
         return false;

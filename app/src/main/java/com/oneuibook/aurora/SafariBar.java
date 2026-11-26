@@ -356,8 +356,10 @@ final class SafariBar extends FrameLayout {
             wideRightPill.set(W - sidePad - rightW, topY, W - sidePad, topY + barH);
 
             float availW = wideRightPill.left - wideLeftPill.right - Ui.dpf(24);
-            float pW = Math.min(availW, Ui.dpf(540));
-            float pL = (W - pW) / 2f + swipeX.value * 0.5f;
+            float pW = Math.max(Ui.dpf(120), Math.min(availW, Ui.dpf(540)));
+            float centerX = (wideLeftPill.right + wideRightPill.left) / 2f;
+            float pL = centerX - pW / 2f + swipeX.value * 0.5f;
+            pL = Ui.clamp(pL, wideLeftPill.right + Ui.dpf(10), wideRightPill.left - Ui.dpf(10) - pW);
             pill.set(pL, topY, pL + pW, topY + barH);
 
             // Live horizontal tab strip below the toolbar
@@ -660,7 +662,7 @@ final class SafariBar extends FrameLayout {
                         return true;
                     }
                     if (!pill.contains(x, y)) {
-                        setEditing(false);
+                        // Let suggestionOverlay handle taps on suggestion rows or blank backdrop dismissal
                         return false;
                     }
                     return true;

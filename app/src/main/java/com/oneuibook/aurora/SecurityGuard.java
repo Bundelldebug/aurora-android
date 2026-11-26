@@ -152,7 +152,7 @@ final class SecurityGuard {
             return new Assessment(RISK_SAFE, "");
         }
         try {
-            URI uri = URI.create(url);
+            Uri uri = Uri.parse(url);
             String host = uri.getHost();
             if (host == null) return new Assessment(RISK_SAFE, "");
             String hl = host.toLowerCase(Locale.ROOT);
@@ -261,30 +261,34 @@ final class SecurityGuard {
     }
 
     /** Watches Android's ConnectivityManager and invokes {@code onConnected} immediately once a VPN tunnel comes up. */
-    static void waitForVpnConnection(Context c, Runnable onConnected) {
-        stopWatchingVpn(c);
+    static synchronized void waitForVpnConnection(Context c, Runnable onConnected) {
+        Context app = c.getApplicationContext();
+        stopWatchingVpn(app);
         try {
-            ConnectivityManager cm = (ConnectivityManager) c.getSystemService(Context.CONNECTIVITY_SERVICE);
+            ConnectivityManager cm = (ConnectivityManager) app.getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm == null) return;
             Handler main = new Handler(Looper.getMainLooper());
+            java.util.concurrent.atomic.AtomicBoolean fired = new java.util.concurrent.atomic.AtomicBoolean(false);
             NetworkRequest req = new NetworkRequest.Builder()
                     .addTransportType(NetworkCapabilities.TRANSPORT_VPN)
                     .removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
                     .build();
             activeVpnWatch = new ConnectivityManager.NetworkCallback() {
                 @Override public void onAvailable(Network network) {
-                    stopWatchingVpn(c);
-                    main.post(onConnected);
+                    if (fired.compareAndSet(false, true)) {
+                        stopWatchingVpn(app);
+                        main.post(onConnected);
+                    }
                 }
             };
             cm.registerNetworkCallback(req, activeVpnWatch);
         } catch (Throwable ignored) {}
     }
 
-    static void stopWatchingVpn(Context c) {
+    static synchronized void stopWatchingVpn(Context c) {
         if (activeVpnWatch == null || c == null) return;
         try {
-            ConnectivityManager cm = (ConnectivityManager) c.getSystemService(Context.CONNECTIVITY_SERVICE);
+            ConnectivityManager cm = (ConnectivityManager) c.getApplicationContext().getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm != null) cm.unregisterNetworkCallback(activeVpnWatch);
         } catch (Throwable ignored) {}
         activeVpnWatch = null;
