@@ -32,12 +32,13 @@ import java.util.Locale;
  * Liquid Glass UI & gestures, Chrome Web Store CRX3 extensions, PWA installation, and Cloud Sync.
  */
 public final class MainActivity extends Activity implements TabManager.Listener, SafariBar.Listener {
-    static final String VERSION = "9.5.1";
+    static final String VERSION = "9.5.2";
     private static final int REQ_FILE_CHOOSER = 7001, REQ_SYNC_CREATE = 7002, REQ_SYNC_OPEN = 7003;
 
     FrameLayout root;
     AuroraGlass.Backdrop backdrop;
     FrameLayout webHost;
+    private View statusBarBg;
     StartPageView startPage;
     SafariBar safariBar;
     TabOverviewView tabOverview;
@@ -71,7 +72,14 @@ public final class MainActivity extends Activity implements TabManager.Listener,
         root.addView(backdrop, match());
 
         webHost = new FrameLayout(this);
-        backdrop.addView(webHost, match());
+        FrameLayout.LayoutParams wlp = match();
+        wlp.topMargin = Ui.statusInset;
+        backdrop.addView(webHost, wlp);
+
+        // Adaptive top status-bar shield so web pages never collide with system status bar / notch
+        statusBarBg = new View(this);
+        statusBarBg.setBackgroundColor(Ui.bg());
+        root.addView(statusBarBg, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(0, Ui.statusInset), Gravity.TOP));
 
         startPage = new StartPageView(this, new StartPageView.Listener() {
             @Override public void onOpenUrl(String url) { tabs.loadUrl(tabs.activeTab(), url); }
@@ -147,11 +155,18 @@ public final class MainActivity extends Activity implements TabManager.Listener,
         root.addView(fullscreenHost, match());
 
         root.setOnApplyWindowInsetsListener((v, ins) -> {
-            Ui.statusInset = ins.getInsets(WindowInsets.Type.statusBars()).top;
+            Ui.statusInset = ins.getInsets(WindowInsets.Type.statusBars() | WindowInsets.Type.displayCutout()).top;
             Ui.navInset = ins.getInsets(WindowInsets.Type.navigationBars()).bottom;
             int ime = ins.getInsets(WindowInsets.Type.ime()).bottom;
             safariBar.setImeOffset(Math.max(0, ime - Ui.navInset));
+            ((FrameLayout.LayoutParams) webHost.getLayoutParams()).topMargin = Ui.statusInset;
+            webHost.requestLayout();
+            if (statusBarBg != null) {
+                statusBarBg.getLayoutParams().height = Ui.statusInset;
+                statusBarBg.requestLayout();
+            }
             ((FrameLayout.LayoutParams) findBar.getLayoutParams()).topMargin = Ui.statusInset + Ui.dp(10);
+            if (tabOverview != null) tabOverview.applyInsets();
             refreshStartPage();
             return ins;
         });
@@ -183,6 +198,7 @@ public final class MainActivity extends Activity implements TabManager.Listener,
     void applyUiSettings() {
         applySystemBars();
         backdrop.setBackgroundColor(Ui.bg());
+        if (statusBarBg != null) statusBarBg.setBackgroundColor(Ui.bg());
         startPage.rebuild();
         safariBar.requestLayout();
         safariBar.invalidate();
@@ -200,24 +216,58 @@ public final class MainActivity extends Activity implements TabManager.Listener,
     void refreshStartPage() {
         TabManager.Tab t = tabs != null ? tabs.activeTab() : null;
         boolean showStart = (t == null || t.isStartPage());
+        // Bypass offscreen RenderNode capture while Chromium WebView is visible -> 0% flickering!
+        backdrop.bypassCapture = !showStart;
+        if (statusBarBg != null) {
+            statusBarBg.setVisibility(showStart ? View.GONE : View.VISIBLE);
+            statusBarBg.setBackgroundColor(Ui.bg());
+        }
         startPage.setVisibility(showStart ? View.VISIBLE : View.GONE);
         webHost.setVisibility(showStart ? View.GONE : View.VISIBLE);
         if (showStart) startPage.rebuild();
+        safariBar.invalidate();
     }
 
     void showTabOverview(boolean show) {
         if (show) {
             tabs.captureThumb(tabs.activeTab());
+            tabOverview.applyInsets();
             tabOverview.refresh();
             tabOverview.animate().cancel();
-            tabOverview.setAlpha(1f);
             tabOverview.setVisibility(View.VISIBLE);
-            safariBar.setVisibility(View.GONE);
+            if ("robolectric".equals(android.os.Build.FINGERPRINT)) {
+                tabOverview.setAlpha(1f);
+                tabOverview.setScaleX(1f);
+                tabOverview.setScaleY(1f);
+                safariBar.setVisibility(View.GONE);
+            } else {
+                tabOverview.setAlpha(0f);
+                tabOverview.setScaleX(1.06f);
+                tabOverview.setScaleY(1.06f);
+                tabOverview.animate().alpha(1f).scaleX(1f).scaleY(1f)
+                        .setDuration(320).setInterpolator(Ui.EMPHASIZED).start();
+                safariBar.animate().alpha(0f).translationY(Ui.dpf(26))
+                        .setDuration(220).setInterpolator(Ui.EMPHASIZED)
+                        .withEndAction(() -> { safariBar.setVisibility(View.GONE); safariBar.setAlpha(1f); safariBar.setTranslationY(0f); }).start();
+            }
         } else {
-            tabOverview.setVisibility(View.GONE);
-            safariBar.setVisibility(View.VISIBLE);
-            applyUiSettings();
-            refreshStartPage();
+            if ("robolectric".equals(android.os.Build.FINGERPRINT)) {
+                tabOverview.setVisibility(View.GONE);
+                safariBar.setVisibility(View.VISIBLE);
+                applyUiSettings();
+                refreshStartPage();
+            } else {
+                tabOverview.animate().alpha(0f).scaleX(1.04f).scaleY(1.04f)
+                        .setDuration(240).setInterpolator(Ui.EMPHASIZED)
+                        .withEndAction(() -> tabOverview.setVisibility(View.GONE)).start();
+                safariBar.setVisibility(View.VISIBLE);
+                safariBar.setAlpha(0f);
+                safariBar.setTranslationY(Ui.dpf(24));
+                safariBar.animate().alpha(1f).translationY(0f)
+                        .setDuration(280).setInterpolator(Ui.EMPHASIZED).start();
+                applyUiSettings();
+                refreshStartPage();
+            }
         }
     }
 

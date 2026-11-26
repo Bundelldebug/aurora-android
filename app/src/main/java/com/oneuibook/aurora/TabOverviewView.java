@@ -42,6 +42,7 @@ final class TabOverviewView extends FrameLayout {
     private final TabManager tabs;
     private final Listener listener;
     private final ScrollView scroll;
+    private final LinearLayout topRow;
     private final LinearLayout rowsHost;
     private final TextView topTitle, clearPrivBtn;
     private final BottomControlBar controlBar;
@@ -53,10 +54,10 @@ final class TabOverviewView extends FrameLayout {
         this.listener = listener;
         setVisibility(GONE);
 
-        LinearLayout topRow = new LinearLayout(c);
+        topRow = new LinearLayout(c);
         topRow.setOrientation(LinearLayout.HORIZONTAL);
         topRow.setGravity(Gravity.CENTER_VERTICAL);
-        topRow.setPadding(Ui.dp(20), Ui.statusInset + Ui.dp(14), Ui.dp(20), Ui.dp(10));
+        topRow.setPadding(Ui.dp(20), Math.max(Ui.statusInset, Ui.dp(24)) + Ui.dp(14), Ui.dp(20), Ui.dp(10));
 
         topTitle = Ui.text(c, "탭", 26, Ui.bold, Ui.text());
         topRow.addView(topTitle, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -81,7 +82,19 @@ final class TabOverviewView extends FrameLayout {
         addView(controlBar, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(96) + Ui.navInset, Gravity.BOTTOM));
     }
 
+    void applyInsets() {
+        int safeTop = Math.max(Ui.statusInset, Ui.dp(24));
+        int safeBot = Math.max(Ui.navInset, Ui.dp(12));
+        topRow.setPadding(Ui.dp(20), safeTop + Ui.dp(14), Ui.dp(20), Ui.dp(10));
+        scroll.setPadding(Ui.dp(14), safeTop + Ui.dp(68), Ui.dp(14), safeBot + Ui.dp(98));
+        if (controlBar.getLayoutParams() != null) {
+            controlBar.getLayoutParams().height = Ui.dp(96) + safeBot;
+            controlBar.requestLayout();
+        }
+    }
+
     void refresh() {
+        applyInsets();
         setBackgroundColor(Ui.bg());
         boolean priv = tabs.privateMode;
         List<TabManager.Tab> list = tabs.activeList();

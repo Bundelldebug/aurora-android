@@ -89,8 +89,9 @@ final class StartPageView extends ScrollView {
     void rebuild() {
         body.removeAllViews();
         Context c = getContext();
-        int topPad = Ui.statusInset + Ui.dp(Ui.layoutMode == 2 ? 72 : 26);
-        int botPad = Ui.navInset + Ui.dp(116);
+        int safeTop = Math.max(Ui.statusInset, Ui.dp(24));
+        int topPad = safeTop + Ui.dp(Ui.layoutMode == 2 ? 78 : 22);
+        int botPad = Math.max(Ui.navInset, Ui.dp(12)) + Ui.dp(118);
         body.setPadding(Ui.dp(20), topPad, Ui.dp(20), botPad);
 
         // Safari Private Browsing header card (concise, exact Safari style)
@@ -150,6 +151,7 @@ final class StartPageView extends ScrollView {
                         listener.onRemoveBookmark(bm);
                         return true;
                     });
+                    Ui.press(item, 0.92f);
                 }
                 row.addView(item, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
             }

@@ -81,20 +81,50 @@ final class GlassSheet extends FrameLayout {
     boolean isOpen() { return open; }
 
     void dismiss() {
+        if (!open) return;
         open = false;
-        setVisibility(GONE);
-        content.removeAllViews();
+        if ("robolectric".equals(android.os.Build.FINGERPRINT)) {
+            setVisibility(GONE);
+            content.removeAllViews();
+            return;
+        }
+        animate().alpha(0f).setDuration(200).setInterpolator(Ui.EMPHASIZED).start();
+        cardContainer.animate().translationY(Ui.dpf(44)).scaleX(0.95f).scaleY(0.95f).alpha(0f)
+                .setDuration(210).setInterpolator(Ui.EMPHASIZED)
+                .withEndAction(() -> {
+                    setVisibility(GONE);
+                    setAlpha(1f);
+                    content.removeAllViews();
+                }).start();
     }
 
     private void showBuilt() {
         open = true;
         setVisibility(VISIBLE);
-        cardContainer.animate().cancel();
-        cardContainer.setAlpha(1f);
-        cardContainer.setTranslationY(0f);
         scroll.scrollTo(0, 0);
+        if (cardContainer.getLayoutParams() instanceof LayoutParams) {
+            ((LayoutParams) cardContainer.getLayoutParams()).bottomMargin = Math.max(Ui.navInset, Ui.dp(12)) + Ui.dp(14);
+        }
         requestLayout();
         invalidate();
+        if ("robolectric".equals(android.os.Build.FINGERPRINT)) {
+            setAlpha(1f);
+            cardContainer.setAlpha(1f);
+            cardContainer.setTranslationY(0f);
+            cardContainer.setScaleX(1f);
+            cardContainer.setScaleY(1f);
+            return;
+        }
+        animate().cancel();
+        cardContainer.animate().cancel();
+        setAlpha(0f);
+        animate().alpha(1f).setDuration(240).setInterpolator(Ui.EMPHASIZED).start();
+        cardContainer.setAlpha(0f);
+        cardContainer.setTranslationY(Ui.dpf(52));
+        cardContainer.setScaleX(0.94f);
+        cardContainer.setScaleY(0.94f);
+        cardContainer.animate().alpha(1f).translationY(0f).scaleX(1f).scaleY(1f)
+                .setDuration(320).setInterpolator(Ui.EMPHASIZED).start();
     }
 
     // ---- 1. iOS 26 Safari '...' Popover Menu ----

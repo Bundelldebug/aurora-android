@@ -84,6 +84,22 @@ final class Ui {
     static float clamp(float v, float lo, float hi) { return Math.max(lo, Math.min(hi, v)); }
     static float lerp(float a, float b, float t) { return a + (b - a) * t; }
 
+    /** Prism-style tactile press recoil animation. */
+    static void press(View v, float scale) {
+        v.setOnTouchListener((view, e) -> {
+            switch (e.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                    view.animate().scaleX(scale).scaleY(scale).setDuration(110).setInterpolator(DECEL).start();
+                    break;
+                case android.view.MotionEvent.ACTION_UP:
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    view.animate().scaleX(1f).scaleY(1f).setDuration(260).setInterpolator(EMPHASIZED).start();
+                    break;
+            }
+            return false;
+        });
+    }
+
     static boolean isDarkSurface() { return dark || privateTheme; }
 
     static int bg() {

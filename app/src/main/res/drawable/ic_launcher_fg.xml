@@ -6,85 +6,27 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Pure Aurora Borealis ribbon emblem (One UI style — zero Safari compass ring/needle) -->
+    <!-- One UI style bold two-tone Aurora wave emblem (centered cleanly at 54,54 inside 66dp safe zone) -->
 
-    <!-- Back sweeping violet-magenta aurora curtain -->
-    <path android:pathData="M24,69 C28,46 43,31 58,39 C70,45 77,36 84,29 C82,49 71,68 55,67 C42,66 34,76 24,69 Z">
+    <!-- Soft translucent echo aurora wave (One UI signature two-tone depth) -->
+    <path
+        android:fillColor="#59FFFFFF"
+        android:pathData="M31,71.5 C31,67.5 34.5,63.2 40.5,60.6 C48.2,57.2 55.8,61.8 63.4,58.6 C68.6,56.4 72.8,52.0 75.5,47.8 C77.6,44.6 81.8,47.0 80.2,51.0 C76.6,60.2 68.4,69.6 56.6,71.8 C46.8,73.6 38.0,77.0 33.4,75.4 C31.8,74.8 31,73.2 31,71.5 Z" />
+
+    <!-- Primary bold pure-white rounded Aurora ribbon arc -->
+    <path
+        android:pathData="M27.5,58.8 C27.5,54.2 32.0,45.8 41.2,40.4 C50.6,34.8 59.8,41.6 68.0,37.8 C72.2,35.8 75.4,32.6 77.6,31.4 C80.2,30.0 82.6,33.0 81.0,36.2 C76.6,45.2 67.2,54.6 55.4,55.2 C45.8,55.8 38.2,60.6 33.2,64.4 C30.0,66.8 27.5,63.0 27.5,58.8 Z">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:type="linear"
-                android:startX="24"
-                android:startY="72"
-                android:endX="84"
-                android:endY="30">
-                <item android:offset="0.0" android:color="#D88B5CF6" />
-                <item android:offset="0.52" android:color="#E06366F1" />
-                <item android:offset="1.0" android:color="#D8EC4899" />
+                android:startX="28"
+                android:startY="32"
+                android:endX="80"
+                android:endY="66">
+                <item android:offset="0.0" android:color="#FFFFFFFF" />
+                <item android:offset="0.65" android:color="#FFF5FAFF" />
+                <item android:offset="1.0" android:color="#FFDDF4FF" />
             </gradient>
         </aapt:attr>
     </path>
-
-    <!-- Main luminous emerald-cyan aurora wave folding gracefully upward -->
-    <path android:pathData="M22,64 C28,40 42,27 56,35 C66,41 72,33 81,25 C82,42 73,57 60,57 C47,57 38,67 28,74 C24,72 21,68 22,64 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="linear"
-                android:startX="22"
-                android:startY="70"
-                android:endX="82"
-                android:endY="24">
-                <item android:offset="0.0" android:color="#FF34F5C5" />
-                <item android:offset="0.46" android:color="#FF22D3EE" />
-                <item android:offset="0.82" android:color="#FF3B82F6" />
-                <item android:offset="1.0" android:color="#FFA855F7" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Frosted translucent glass ribbon crest (foreground light fold) -->
-    <path android:pathData="M29,77 C37,61 48,51 61,55 C72,58 79,51 85,43 C84,61 73,77 58,79 C46,81 36,83 29,77 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="linear"
-                android:startX="29"
-                android:startY="80"
-                android:endX="85"
-                android:endY="44">
-                <item android:offset="0.0" android:color="#EBF4FFFC" />
-                <item android:offset="0.45" android:color="#D4A5F3FC" />
-                <item android:offset="1.0" android:color="#CC818CF8" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Specular silk highlight ridge along the primary aurora fold -->
-    <path
-        android:pathData="M26,61 C32,42 44,31 56,37 C65,41 71,36 78,29"
-        android:fillColor="#00000000"
-        android:strokeColor="#CCFFFFFF"
-        android:strokeWidth="1.9"
-        android:strokeLineCap="round" />
-
-    <!-- Specular highlight ridge along the lower frosted wave -->
-    <path
-        android:pathData="M34,74 C41,61 51,54 62,57 C70,59 76,55 81,49"
-        android:fillColor="#00000000"
-        android:strokeColor="#E6FFFFFF"
-        android:strokeWidth="1.6"
-        android:strokeLineCap="round" />
-
-    <!-- Delicate 4-point polar starlight sparkle (top-left) -->
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M34,26 L35.2,30.2 L39.4,31.4 L35.2,32.6 L34,36.8 L32.8,32.6 L28.6,31.4 L32.8,30.2 Z" />
-
-    <!-- Tiny polar star glint (upper-right) -->
-    <path
-        android:fillColor="#E0E0F2FE"
-        android:pathData="M73,70 L73.8,72.6 L76.4,73.4 L73.8,74.2 L73,76.8 L72.2,74.2 L69.6,73.4 L72.2,72.6 Z" />
-
-    <!-- Subtle star dot -->
-    <path
-        android:fillColor="#B3FFFFFF"
-        android:pathData="M45,26 m-1.4,0 a1.4,1.4 0 1,0 2.8,0 a1.4,1.4 0 1,0 -2.8,0" />
 </vector>

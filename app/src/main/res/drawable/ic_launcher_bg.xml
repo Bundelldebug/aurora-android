@@ -6,48 +6,18 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Deep polar night One UI base gradient -->
+    <!-- Vibrant clean One UI squircle base: luminous cyan -> ocean blue -> aurora indigo -->
     <path android:pathData="M0,0 L108,0 L108,108 L0,108 Z">
         <aapt:attr name="android:fillColor">
             <gradient
                 android:type="linear"
-                android:startX="14"
-                android:startY="10"
+                android:startX="12"
+                android:startY="8"
                 android:endX="96"
-                android:endY="102">
-                <item android:offset="0.0" android:color="#11275E" />
-                <item android:offset="0.48" android:color="#0C1B44" />
-                <item android:offset="1.0" android:color="#08112B" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Upper-left luminous aurora sky glow -->
-    <path android:pathData="M0,0 L108,0 L108,108 L0,108 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="radial"
-                android:centerX="30"
-                android:centerY="26"
-                android:gradientRadius="68">
-                <item android:offset="0.0" android:color="#6632F5C8" />
-                <item android:offset="0.52" android:color="#3038BDF8" />
-                <item android:offset="1.0" android:color="#0008112B" />
-            </gradient>
-        </aapt:attr>
-    </path>
-
-    <!-- Lower-right aurora violet glow -->
-    <path android:pathData="M0,0 L108,0 L108,108 L0,108 Z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:type="radial"
-                android:centerX="82"
-                android:centerY="84"
-                android:gradientRadius="62">
-                <item android:offset="0.0" android:color="#7A9333EA" />
-                <item android:offset="0.55" android:color="#33EC4899" />
-                <item android:offset="1.0" android:color="#0008112B" />
+                android:endY="100">
+                <item android:offset="0.0" android:color="#FF0AD2C8" />
+                <item android:offset="0.52" android:color="#FF1E6BFF" />
+                <item android:offset="1.0" android:color="#FF4F46E5" />
             </gradient>
         </aapt:attr>
     </path>

@@ -143,7 +143,7 @@ public class AuroraUiTest {
         ActivityController<MainActivity> ctrl = Robolectric.buildActivity(MainActivity.class).setup();
         MainActivity act = ctrl.get();
         assertEquals("오로라", act.getString(R.string.app_name));
-        assertEquals("9.5.1", MainActivity.VERSION);
+        assertEquals("9.5.2", MainActivity.VERSION);
         assertEquals(0, Ui.layoutMode);
 
         // 1. Light Start Page + iOS 26 Safari Compact Liquid Glass Pill

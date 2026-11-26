@@ -179,17 +179,18 @@ final class AuroraGlass {
         }
     }
 
-    /** Wraps the live browser viewport (WebView + StartPage) so floating Safari bars refract live content. */
+    /** Wraps the live browser viewport (WebView + StartPage). Bypasses offscreen RenderNode capture when WebView is active to prevent Chromium surface flickering! */
     static final class Backdrop extends FrameLayout {
         final RenderNode node = new RenderNode("aurora-backdrop");
         boolean recorded;
+        boolean bypassCapture;
 
         Backdrop(Context c) { super(c); }
 
         @Override public void draw(Canvas canvas) {
-            if (!canvas.isHardwareAccelerated() || getWidth() <= 0 || getHeight() <= 0) {
-                super.draw(canvas);
+            if (bypassCapture || !canvas.isHardwareAccelerated() || getWidth() <= 0 || getHeight() <= 0) {
                 recorded = false;
+                super.draw(canvas);
                 return;
             }
             node.setPosition(0, 0, getWidth(), getHeight());
