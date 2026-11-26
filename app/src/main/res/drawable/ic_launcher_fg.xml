@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Soft frosted glass disc centered in One UI 72dp safe zone (cx=54, cy=54, r=26) -->
+    <path android:pathData="M54,28 A26,26 0 1,1 53.99,28 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="32"
+                android:startY="28"
+                android:endX="76"
+                android:endY="80">
+                <item android:offset="0.0" android:color="#40FFFFFF" />
+                <item android:offset="0.55" android:color="#1A8BE9FD" />
+                <item android:offset="1.0" android:color="#2E8B5CF6" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Luminous Aurora Borealis ribbon sweeping across the compass orb -->
+    <path android:pathData="M29,63 C35,44 45,35 55,44 C64,52 70,39 79,34 C76,47 68,62 56,57 C45,52 38,66 30,72 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="29"
+                android:startY="68"
+                android:endX="79"
+                android:endY="34">
+                <item android:offset="0.0" android:color="#E82AF5C5" />
+                <item android:offset="0.45" android:color="#F038BDF8" />
+                <item android:offset="0.82" android:color="#E6A855F7" />
+                <item android:offset="1.0" android:color="#D9F472B6" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Second translucent aurora wave for depth -->
+    <path android:pathData="M31,72 C41,58 51,64 60,55 C68,47 74,48 79,45 C75,58 65,73 52,70 C42,68 37,74 31,72 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="31"
+                android:startY="72"
+                android:endX="79"
+                android:endY="45">
+                <item android:offset="0.0" android:color="#9934D399" />
+                <item android:offset="0.55" android:color="#AA60A5FA" />
+                <item android:offset="1.0" android:color="#B8C084FC" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Crisp Safari-inspired Glass Compass Ring (45-deg specular stroke) -->
+    <path
+        android:pathData="M54,28 A26,26 0 1,1 53.99,28 Z"
+        android:strokeWidth="1.9"
+        android:strokeColor="#CCFFFFFF" />
+
+    <!-- Subtle cardinal tick marks -->
+    <path
+        android:pathData="M54,31.5 L54,35 M54,73 L54,76.5 M31.5,54 L35,54 M73,54 L76.5,54"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:strokeColor="#A8FFFFFF" />
+
+    <!-- North-East Luminous Needle (pure white-ice) -->
+    <path android:pathData="M67.5,40.5 L57.8,57.8 L50.2,50.2 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="67.5"
+                android:startY="40.5"
+                android:endX="50.2"
+                android:endY="57.8">
+                <item android:offset="0.0" android:color="#FFFFFFFF" />
+                <item android:offset="1.0" android:color="#FFE0F7FF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- South-West Aurora Needle (coral-rose to frost) -->
+    <path android:pathData="M40.5,67.5 L50.2,50.2 L57.8,57.8 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="54"
+                android:startY="54"
+                android:endX="40.5"
+                android:endY="67.5">
+                <item android:offset="0.0" android:color="#F0FF6B8B" />
+                <item android:offset="1.0" android:color="#E6A855F7" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Center glass pivot jewel -->
+    <path
+        android:pathData="M54,51.2 A2.8,2.8 0 1,1 53.99,51.2 Z"
+        android:fillColor="#FFFFFFFF" />
+</vector>
