@@ -32,7 +32,7 @@ import java.util.Locale;
  * Liquid Glass UI & gestures, Chrome Web Store CRX3 extensions, PWA installation, and Cloud Sync.
  */
 public final class MainActivity extends Activity implements TabManager.Listener, SafariBar.Listener {
-    static final String VERSION = "9.5.2";
+    static final String VERSION = "9.5.3";
     private static final int REQ_FILE_CHOOSER = 7001, REQ_SYNC_CREATE = 7002, REQ_SYNC_OPEN = 7003;
 
     FrameLayout root;
@@ -363,8 +363,17 @@ public final class MainActivity extends Activity implements TabManager.Listener,
     @Override public void onSubmitUrl(String input) { tabs.loadInput(input); }
     @Override public void onQueryChanged(String query) { populateSuggestions(query); }
     @Override public void onEditModeChanged(boolean editing) {
-        suggestionOverlay.setVisibility(editing ? View.VISIBLE : View.GONE);
-        if (editing) populateSuggestions(safariBar.addressField.getText().toString());
+        if (editing) {
+            populateSuggestions(safariBar.addressField.getText().toString());
+            suggestionOverlay.animate().cancel();
+            suggestionOverlay.setVisibility(View.VISIBLE);
+            suggestionOverlay.setAlpha(0f);
+            suggestionOverlay.animate().alpha(1f).setDuration(200).setInterpolator(Ui.EMPHASIZED).start();
+        } else {
+            suggestionOverlay.animate().cancel();
+            suggestionOverlay.animate().alpha(0f).setDuration(160).setInterpolator(Ui.EMPHASIZED)
+                    .withEndAction(() -> suggestionOverlay.setVisibility(View.GONE)).start();
+        }
     }
     @Override public void onSwipeTabDelta(int delta) {
         int cur = tabs.activeIndex();
@@ -431,12 +440,18 @@ public final class MainActivity extends Activity implements TabManager.Listener,
     }
 
     void openFindBar() {
+        findBar.animate().cancel();
         findBar.setVisibility(View.VISIBLE);
+        findBar.setAlpha(0f);
+        findBar.setTranslationY(-Ui.dpf(14));
+        findBar.animate().alpha(1f).translationY(0f).setDuration(220).setInterpolator(Ui.EMPHASIZED).start();
         findInput.requestFocus();
     }
 
     void closeFindBar() {
-        findBar.setVisibility(View.GONE);
+        findBar.animate().cancel();
+        findBar.animate().alpha(0f).translationY(-Ui.dpf(12)).setDuration(160).setInterpolator(Ui.EMPHASIZED)
+                .withEndAction(() -> findBar.setVisibility(View.GONE)).start();
         findInput.setText("");
         if (tabs.activeTab().webView != null) tabs.activeTab().webView.clearMatches();
     }
@@ -565,9 +580,26 @@ public final class MainActivity extends Activity implements TabManager.Listener,
         if (fullscreenHost.getVisibility() == View.VISIBLE) { onFullscreenHide(); return; }
         if (sheet.isOpen()) { sheet.dismiss(); return; }
         if (findBar.getVisibility() == View.VISIBLE) { closeFindBar(); return; }
-        if (safariBar.editing) { safariBar.setEditing(false); return; }
+        if (safariBar.editing || suggestionOverlay.getVisibility() == View.VISIBLE) {
+            safariBar.setEditing(false);
+            suggestionOverlay.setVisibility(View.GONE);
+            return;
+        }
         if (tabOverview.getVisibility() == View.VISIBLE) { showTabOverview(false); return; }
         if (tabs.canGoBack()) { tabs.goBack(); return; }
+        TabManager.Tab cur = tabs.activeTab();
+        if (cur != null && !cur.isStartPage()) {
+            cur.url = "";
+            cur.title = "시작 페이지";
+            if (cur.webView != null) cur.webView.setVisibility(View.GONE);
+            refreshStartPage();
+            safariBar.updateState(cur, false, tabs.canGoForward(), tabs.activeList().size());
+            return;
+        }
+        if (tabs.privateMode) {
+            tabs.selectTab(false, 0);
+            return;
+        }
         super.onBackPressed();
     }
 
