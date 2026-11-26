@@ -4,11 +4,14 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Pure monochrome Aurora Borealis waves (zero compass elements) -->
     <path
-        android:pathData="M54,28 A26,26 0 1,1 53.99,28 Z"
-        android:strokeWidth="3.2"
-        android:strokeColor="#FFFFFF" />
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M22,64 C28,40 42,27 56,35 C66,41 72,33 81,25 C82,42 73,57 60,57 C47,57 38,67 28,74 C24,72 21,68 22,64 Z" />
     <path
-        android:pathData="M68,40 L57.5,57.5 L40,68 L50.5,50.5 Z"
-        android:fillColor="#FFFFFF" />
+        android:fillColor="#CCFFFFFF"
+        android:pathData="M29,77 C37,61 48,51 61,55 C72,58 79,51 85,43 C84,61 73,77 58,79 C46,81 36,83 29,77 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M34,26 L35.2,30.2 L39.4,31.4 L35.2,32.6 L34,36.8 L32.8,32.6 L28.6,31.4 L32.8,30.2 Z" />
 </vector>

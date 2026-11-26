@@ -57,11 +57,11 @@ final class SafariBar extends FrameLayout {
     final RectF bottomToolbar = new RectF();
     private final RectF tmp = new RectF();
 
-    private final Ui.Spring collapse = new Ui.Spring(320f, 0.84f, 0.002f);
-    private final Ui.Spring swipeX = new Ui.Spring(440f, 0.78f, 0.5f);
-    private final Ui.Spring pressBack = new Ui.Spring(620f, 0.82f, 0.002f);
-    private final Ui.Spring pressPill = new Ui.Spring(620f, 0.82f, 0.002f);
-    private final Ui.Spring pressMore = new Ui.Spring(620f, 0.82f, 0.002f);
+    private final Ui.Spring collapse = new Ui.Spring(360f, 1.0f, 0.002f);
+    private final Ui.Spring swipeX = new Ui.Spring(460f, 0.96f, 0.5f);
+    private final Ui.Spring pressBack = new Ui.Spring(640f, 1.0f, 0.002f);
+    private final Ui.Spring pressPill = new Ui.Spring(640f, 1.0f, 0.002f);
+    private final Ui.Spring pressMore = new Ui.Spring(640f, 1.0f, 0.002f);
 
     final EditText addressField;
     boolean editing;

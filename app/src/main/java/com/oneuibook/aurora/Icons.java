@@ -385,15 +385,19 @@ final class Icons {
         c.drawRoundRect(RF, w * 0.25f, w * 0.25f, P);
     }
 
-    /** Authentic iOS 26 Liquid Glass Capsule Toggle Switch (replaces stock Android Switch). */
+    /** Kyant0 AndroidLiquidGlass-style LiquidToggle (64x28dp track, 40x24dp refractive capsule thumb, critically damped). */
     static final class GlassToggle extends View {
         interface OnChange { void onChanged(boolean checked); }
 
         private boolean checked;
         private final OnChange onChange;
-        private final Ui.Spring pos = new Ui.Spring(480f, 0.74f, 0.002f);
+        private final Ui.Spring pos = new Ui.Spring(480f, 1.0f, 0.002f);
+        private final Ui.Spring press = new Ui.Spring(640f, 1.0f, 0.002f);
         private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF rf = new RectF();
+        private float downX;
+        private boolean dragging;
 
         GlassToggle(Context c, boolean initial, OnChange onChange) {
             super(c);
@@ -401,16 +405,19 @@ final class Icons {
             this.onChange = onChange;
             pos.snap(initial ? 1f : 0f);
             pos.onUpdate = this::invalidate;
+            press.onUpdate = this::invalidate;
+            stroke.setStyle(Paint.Style.STROKE);
         }
 
         @Override protected void onMeasure(int wSpec, int hSpec) {
-            setMeasuredDimension(Ui.dp(50), Ui.dp(30));
+            setMeasuredDimension(Ui.dp(64), Ui.dp(28));
         }
 
         @Override protected void onDraw(Canvas c) {
             float w = getWidth(), h = getHeight();
             float r = h / 2f;
             float t = Ui.clamp(pos.value, 0f, 1f);
+            float pr = Ui.clamp(press.value, 0f, 1f);
             int offTrack = Ui.isDarkSurface() ? 0xFF3A3D4A : 0xFFD5DAE4;
             int onTrack = Ui.privateTheme ? 0xFF8B5CF6 : 0xFF34C759;
             p.setStyle(Paint.Style.FILL);
@@ -418,27 +425,59 @@ final class Icons {
             rf.set(0, 0, w, h);
             c.drawRoundRect(rf, r, r, p);
 
-            // Sliding white glass knob
-            float pad = Ui.dpf(2.5f);
-            float kw = h - pad * 2f + Math.abs(pos.velocity) * 0.35f;
-            kw = Math.min(kw, w * 0.56f);
-            float kh = h - pad * 2f;
-            float cx = Ui.lerp(pad + kh / 2f, w - pad - kh / 2f, t);
-            rf.set(cx - kw / 2f, pad, cx + kw / 2f, pad + kh);
-            p.setColor(0xFFFFFFFF);
-            p.setShadowLayer(Ui.dpf(4), 0, Ui.dpf(1.5f), 0x33000000);
-            c.drawRoundRect(rf, kh / 2f, kh / 2f, p);
+            // Kyant0 refractive glass capsule thumb
+            float pad = Ui.dpf(2f);
+            float baseW = Math.min(w * 0.64f, Ui.dpf(40));
+            float stretch = pr * Ui.dpf(3.5f);
+            float kw = Math.min(w - pad * 2f, baseW + stretch);
+            float travel = Math.max(0f, w - pad * 2f - kw);
+            float left = pad + travel * t;
+            float top = Math.max(0.5f, pad - pr * Ui.dpf(1f));
+            float bot = Math.min(h - 0.5f, h - pad + pr * Ui.dpf(1f));
+            rf.set(left, top, left + kw, bot);
+            float rr = rf.height() / 2f;
+            p.setColor(pr > 0.15f ? (Ui.isDarkSurface() ? 0xD8F2F6FF : 0xE6FFFFFF) : 0xFFFFFFFF);
+            p.setShadowLayer(Ui.dpf(3f + pr * 2.5f), 0, Ui.dpf(1.2f), 0x3A000000);
+            c.drawRoundRect(rf, rr, rr, p);
             p.clearShadowLayer();
+
+            stroke.setStrokeWidth(Ui.dpf(1f));
+            stroke.setColor(pr > 0.15f ? 0xCCFFFFFF : 0x44FFFFFF);
+            c.drawRoundRect(rf, rr, rr, stroke);
         }
 
         @Override public boolean onTouchEvent(MotionEvent e) {
-            if (e.getActionMasked() == MotionEvent.ACTION_UP) {
-                checked = !checked;
-                pos.to(checked ? 1f : 0f);
-                if (onChange != null) onChange.onChanged(checked);
-                return true;
+            float w = getWidth();
+            float thumbW = Ui.dpf(40);
+            float pad = Ui.dpf(2f);
+            float travel = Math.max(1f, w - pad * 2f - thumbW);
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    downX = e.getX();
+                    dragging = false;
+                    press.to(1f);
+                    getParent().requestDisallowInterceptTouchEvent(true);
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    if (Math.abs(e.getX() - downX) > Ui.dpf(5)) dragging = true;
+                    if (dragging) {
+                        pos.snap(Ui.clamp((e.getX() - pad - thumbW / 2f) / travel, 0f, 1f));
+                    }
+                    return true;
+                case MotionEvent.ACTION_UP:
+                    press.to(0f);
+                    boolean next = dragging ? (pos.value >= 0.5f) : !checked;
+                    boolean changed = next != checked;
+                    checked = next;
+                    pos.to(checked ? 1f : 0f);
+                    if (changed && onChange != null) onChange.onChanged(checked);
+                    return true;
+                case MotionEvent.ACTION_CANCEL:
+                    press.to(0f);
+                    pos.to(checked ? 1f : 0f);
+                    return true;
             }
-            return e.getActionMasked() == MotionEvent.ACTION_DOWN;
+            return super.onTouchEvent(e);
         }
     }
 }

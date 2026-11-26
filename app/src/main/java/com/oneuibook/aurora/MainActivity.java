@@ -32,7 +32,7 @@ import java.util.Locale;
  * Liquid Glass UI & gestures, Chrome Web Store CRX3 extensions, PWA installation, and Cloud Sync.
  */
 public final class MainActivity extends Activity implements TabManager.Listener, SafariBar.Listener {
-    static final String VERSION = "9.5.0";
+    static final String VERSION = "9.5.1";
     private static final int REQ_FILE_CHOOSER = 7001, REQ_SYNC_CREATE = 7002, REQ_SYNC_OPEN = 7003;
 
     FrameLayout root;
