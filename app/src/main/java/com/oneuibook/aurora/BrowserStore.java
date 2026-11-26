@@ -66,6 +66,7 @@ final class BrowserStore {
     static final List<HistoryItem> history = new ArrayList<>();
     static final List<WebAppItem> webApps = new ArrayList<>();
     static final Set<String> desktopHosts = new HashSet<>();
+    static final Set<String> vpnDomains = new HashSet<>();
     static int blockedTrackers;
     static String lastSyncInfo = "";
     static String syncUri = "";
@@ -115,6 +116,10 @@ final class BrowserStore {
         desktopHosts.clear();
         Set<String> dh = p.getStringSet("desktop_hosts", null);
         if (dh != null) desktopHosts.addAll(dh);
+
+        vpnDomains.clear();
+        Set<String> vd = p.getStringSet("vpn_domains", null);
+        if (vd != null) vpnDomains.addAll(vd);
     }
 
     private static void seedDefaultFavorites() {
@@ -145,6 +150,7 @@ final class BrowserStore {
                     .putString("history", h.toString())
                     .putString("webapps", w.toString())
                     .putStringSet("desktop_hosts", new HashSet<>(desktopHosts))
+                    .putStringSet("vpn_domains", new HashSet<>(vpnDomains))
                     .putInt("blocked_trackers", blockedTrackers)
                     .putString("last_sync_info", lastSyncInfo)
                     .putString("sync_uri", syncUri)
@@ -221,6 +227,37 @@ final class BrowserStore {
 
     static int loadSavedTabIndex(Context c) {
         return sp(c).getInt("saved_tab_idx", 0);
+    }
+
+    static boolean hasVpnDomain(String raw) {
+        String dom = normalizeDomain(raw);
+        if (dom.isEmpty()) return false;
+        return vpnDomains.contains(dom);
+    }
+
+    static void addVpnDomain(Context c, String raw) {
+        String dom = normalizeDomain(raw);
+        if (dom.isEmpty()) return;
+        vpnDomains.add(dom);
+        save(c);
+    }
+
+    static void removeVpnDomain(Context c, String raw) {
+        String dom = normalizeDomain(raw);
+        if (dom.isEmpty()) return;
+        vpnDomains.remove(dom);
+        save(c);
+    }
+
+    private static String normalizeDomain(String raw) {
+        if (raw == null) return "";
+        String s = raw.trim().toLowerCase(java.util.Locale.ROOT);
+        if (s.isEmpty()) return "";
+        if (s.startsWith("http://") || s.startsWith("https://")) s = domainOf(s).toLowerCase(java.util.Locale.ROOT);
+        if (s.startsWith("www.")) s = s.substring(4);
+        int slash = s.indexOf('/');
+        if (slash > 0) s = s.substring(0, slash);
+        return s.trim();
     }
 
     static String domainOf(String url) {

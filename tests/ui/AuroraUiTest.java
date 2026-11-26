@@ -138,22 +138,56 @@ public class AuroraUiTest {
         assertNotNull(WebAppInstaller.renderAppIconBitmap("Aurora", 0xFF0A84FF, null));
     }
 
+    @Test public void securityGuardVpnAndGoogleTranslateParsingWork() {
+        Context ctx = RuntimeEnvironment.getApplication();
+        BrowserStore.load(ctx);
+        Ui.securityShield = true;
+        Ui.httpsOnly = true;
+
+        assertEquals("https://example.com/path", SecurityGuard.maybeUpgradeHttps("http://example.com/path"));
+        assertEquals("http://localhost:8080/", SecurityGuard.maybeUpgradeHttps("http://localhost:8080/"));
+        assertEquals("https://example.com/article?id=42",
+                SecurityGuard.sanitizeUrl("https://example.com/article?id=42&utm_source=x&fbclid=abc"));
+        assertEquals(SecurityGuard.RISK_DANGEROUS,
+                SecurityGuard.assessUrl("https://google.com@evil.example/login").risk);
+        assertEquals(SecurityGuard.RISK_DANGEROUS,
+                SecurityGuard.assessUrl("https://malware.testing.google.test/").risk);
+        assertEquals(SecurityGuard.RISK_SAFE,
+                SecurityGuard.assessUrl("https://www.google.com/").risk);
+        assertTrue(SecurityGuard.isDangerousDownload("update.apk"));
+        assertFalse(SecurityGuard.isDangerousDownload("report.pdf"));
+
+        // Per-site NordVPN routing rules
+        assertEquals("NordVPN", SecurityGuard.vpnLabel("nordvpn"));
+        assertEquals("com.nordvpn.android", SecurityGuard.vpnPackage("nordvpn"));
+        BrowserStore.addVpnDomain(ctx, "https://www.reddit.com/r/android");
+        assertTrue(SecurityGuard.requiresVpnForUrl("https://old.reddit.com/r/all"));
+        assertFalse(SecurityGuard.requiresVpnForUrl("https://www.naver.com"));
+        BrowserStore.removeVpnDomain(ctx, "reddit.com");
+
+        // Google Translate JSON parser
+        String sample = "[[[\"안녕하세요 \",\"Hello \",null,null,10],[\"세계\",\"world\",null,null,10]],null,\"en\"]";
+        assertEquals("안녕하세요 세계", PageTranslator.parseGoogleTranslateJson(sample));
+    }
+
     @Test @Config(qualifiers = "ko-rKR-w412dp-h915dp-xxhdpi")
     public void safariCompactBarStartPageTabsAndSheetsRender() throws Exception {
         ActivityController<MainActivity> ctrl = Robolectric.buildActivity(MainActivity.class).setup();
         MainActivity act = ctrl.get();
         assertEquals("오로라", act.getString(R.string.app_name));
-        assertEquals("9.5.3", MainActivity.VERSION);
+        assertEquals("9.5.4", MainActivity.VERSION);
         assertEquals(0, Ui.layoutMode);
 
         // 1. Light Start Page + iOS 26 Safari Compact Liquid Glass Pill
         shot(act.root, 1236, 2745, "phone-start-light.png");
 
-        // 2. Open Safari '...' Action Menu Sheet
-        act.sheet.showMainMenu(act);
+        // 2. Open Safari '...' Action Menu Sheet (morphed from moreBtn anchor)
+        act.onMoreMenu(act.safariBar.moreBtnAnchor());
         shot(act.root, 1236, 2745, "phone-menu.png");
 
-        // 3. Open Extensions & Settings Sheets (verifies custom iOS 26 glass toggles & right-aligned SF icons)
+        // 3. Security & NordVPN Sheet + Extensions + Settings
+        act.sheet.showSecurityVpnSheet(act);
+        shot(act.root, 1236, 2745, "phone-security-vpn.png");
         act.sheet.showExtensionsSheet(act);
         shot(act.root, 1236, 2745, "phone-extensions.png");
         act.sheet.showSettingsSheet(act);
@@ -183,6 +217,20 @@ public class AuroraUiTest {
         Ui.layoutMode = 1;
         act.applyUiSettings();
         shot(act.root, 1236, 2745, "phone-bottom-classic.png");
+    }
+
+    @Test @Config(qualifiers = "ko-rKR-w900dp-h640dp-xhdpi")
+    public void foldableAndTabletWideLayoutRendersCleanly() throws Exception {
+        ActivityController<MainActivity> ctrl = Robolectric.buildActivity(MainActivity.class).setup();
+        MainActivity act = ctrl.get();
+        act.tabs.newTab(false, "https://github.com", false);
+        act.tabs.newTab(false, "https://www.google.com", false);
+        act.safariBar.updateTabList(act.tabs.activeList(), act.tabs.activeIndex());
+        assertTrue(Ui.isWide());
+        shot(act.root, 1800, 1280, "tablet-wide-start.png");
+
+        act.onMoreMenu(act.safariBar.moreBtnAnchor());
+        shot(act.root, 1800, 1280, "tablet-wide-popover.png");
     }
 
     private static void putZip(ZipOutputStream zos, String name, String content) throws Exception {

@@ -19,24 +19,23 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
- * Authentic iOS 26/27 Apple Safari Liquid Glass Floating Bar:
- * - Compact mode (default): detached '<' glass circle + floating address pill + detached '...' circle
- * - Bottom Classic mode: floating address pill over floating 5-icon glass bar
- * - Top mode: floating address pill at top + compact floating 5-icon bar at bottom
- * Full iOS 26 Safari gestures:
- * - Horizontal swipe across pill switches tabs (swipe past last tab opens a New Tab)
- * - Upward swipe on pill opens Tab Overview
- * - Long-press '<' opens history/forward; double-tap '...' opens Tab Overview
- * - Scroll-to-minimize shrinks pill into an ultra-clean translucent domain capsule
+ * Authentic iOS 26/27 & iPadOS 26 Apple Safari Liquid Glass Floating Bar:
+ * - Phone Compact mode (default): detached '<' glass circle + floating address pill + detached '...' circle
+ * - Phone Bottom Classic / Top modes
+ * - Foldable / Tablet Wide mode (>= 600dp): unified top floating glass toolbar + live horizontal tab strip
+ * Smooth spring-driven edit expansion, tab swipe gestures, and anchor handoff for button-to-menu morphing.
  */
 final class SafariBar extends FrameLayout {
     interface Listener {
         void onBack();
         void onBackLongPress();
         void onForward();
-        void onMoreMenu();
-        void onPageMenu();
+        void onMoreMenu(RectF anchor);
+        void onPageMenu(RectF anchor);
         void onOpenTabs();
         void onShare();
         void onBookmarks();
@@ -44,7 +43,10 @@ final class SafariBar extends FrameLayout {
         void onSubmitUrl(String input);
         void onQueryChanged(String query);
         void onEditModeChanged(boolean editing);
-        void onSwipeTabDelta(int delta); // -1 prev, +1 next / new tab
+        void onSwipeTabDelta(int delta);
+        default void onSelectTabIndex(int index) {}
+        default void onCloseTabIndex(int index) {}
+        default void onNewTabInline() {}
     }
 
     private final AuroraGlass.Backdrop backdrop;
@@ -52,19 +54,26 @@ final class SafariBar extends FrameLayout {
 
     private final AuroraGlass.Surface mainGlass = new AuroraGlass.Surface();
     private final AuroraGlass.Surface auxGlass = new AuroraGlass.Surface();
+    private final AuroraGlass.Surface stripGlass = new AuroraGlass.Surface();
 
     final RectF backBtn = new RectF(), pill = new RectF(), moreBtn = new RectF();
     final RectF bottomToolbar = new RectF();
-    private final RectF tmp = new RectF();
+    private final RectF wideLeftPill = new RectF(), wideRightPill = new RectF(), wideStripBg = new RectF();
+    private final List<RectF> tabChipRects = new ArrayList<>();
+    private final RectF addTabChipRect = new RectF();
+    private final List<String> tabTitles = new ArrayList<>();
+    private int activeTabIdx = 0;
 
     private final Ui.Spring collapse = new Ui.Spring(360f, 1.0f, 0.002f);
-    private final Ui.Spring swipeX = new Ui.Spring(460f, 0.96f, 0.5f);
+    private final Ui.Spring editP = new Ui.Spring(440f, 1.0f, 0.002f);
+    private final Ui.Spring swipeX = new Ui.Spring(460f, 1.0f, 0.5f);
     private final Ui.Spring pressBack = new Ui.Spring(640f, 1.0f, 0.002f);
     private final Ui.Spring pressPill = new Ui.Spring(640f, 1.0f, 0.002f);
     private final Ui.Spring pressMore = new Ui.Spring(640f, 1.0f, 0.002f);
 
     final EditText addressField;
     boolean editing;
+    private boolean moreHidden;
     private int imeOffset;
 
     private String domainText = "";
@@ -73,19 +82,26 @@ final class SafariBar extends FrameLayout {
     private boolean loading;
     private boolean canBack, canForward;
     private boolean secureHttps;
+    private boolean vpnSite;
+    private boolean pageTranslated;
     private int tabCount = 1;
 
     private final TextPaint domainPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final TextPaint badgePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint chipPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final Paint progPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint chipFillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-    private static final int T_NONE = 0, T_BACK = 1, T_PILL = 2, T_MORE = 3, T_TOOLBAR = 4;
+    private static final int T_NONE = 0, T_BACK = 1, T_PILL = 2, T_MORE = 3, T_TOOLBAR = 4,
+            T_WIDE_LEFT = 5, T_WIDE_RIGHT = 6, T_TAB_CHIP = 7, T_ADD_TAB = 8;
     private int touch = T_NONE;
+    private int touchedChip = -1;
+    private boolean touchedChipClose;
     private float downX, downY, touchX, touchY;
     private boolean swipingPill;
     private long lastMoreTapMs;
     private final Runnable backLongPressRun = () -> {
-        if (touch == T_BACK && listener != null) {
+        if ((touch == T_BACK || touch == T_WIDE_LEFT) && listener != null) {
             touch = T_NONE;
             pressBack.to(0f);
             listener.onBackLongPress();
@@ -103,6 +119,8 @@ final class SafariBar extends FrameLayout {
         badgePaint.setTypeface(Ui.bold);
         badgePaint.setTextAlign(Paint.Align.CENTER);
         badgePaint.setTextSize(Ui.sp(10f));
+        chipPaint.setTypeface(Ui.medium);
+        chipPaint.setTextSize(Ui.sp(12f));
 
         mainGlass.blurDp = 8f;
         mainGlass.refractDp = 16f;
@@ -121,12 +139,19 @@ final class SafariBar extends FrameLayout {
         auxGlass.chroma = 0.28f;
         auxGlass.rim = 0.36f;
 
-        Runnable inv = this::invalidate;
-        collapse.onUpdate = inv;
-        swipeX.onUpdate = inv;
-        pressBack.onUpdate = inv;
-        pressPill.onUpdate = inv;
-        pressMore.onUpdate = inv;
+        stripGlass.blurDp = 8f;
+        stripGlass.refractDp = 12f;
+        stripGlass.edgeDp = 18f;
+        stripGlass.chroma = 0.20f;
+        stripGlass.rim = 0.32f;
+
+        Runnable inv = () -> { placeField(); invalidate(); };
+        collapse.onUpdate = this::invalidate;
+        editP.onUpdate = inv;
+        swipeX.onUpdate = this::invalidate;
+        pressBack.onUpdate = this::invalidate;
+        pressPill.onUpdate = this::invalidate;
+        pressMore.onUpdate = this::invalidate;
 
         addressField = new EditText(c);
         addressField.setBackground(null);
@@ -163,6 +188,62 @@ final class SafariBar extends FrameLayout {
 
     void setListener(Listener l) { listener = l; }
 
+    boolean isWideLayout() {
+        int w = getWidth() > 0 ? getWidth() : Ui.screenW;
+        return (w / Ui.density) >= 600f;
+    }
+
+    /** Extra top clearance needed by content/WebView when Safari bar sits at top (wide/foldable/tablet or Top mode). */
+    int topContentInsetPx() {
+        int base = Ui.statusInset;
+        if (isWideLayout()) return base + Ui.dp(100);
+        if (Ui.layoutMode == 2) return base + Ui.dp(62);
+        return base;
+    }
+
+    void setMoreHidden(boolean hidden) {
+        if (moreHidden == hidden) return;
+        moreHidden = hidden;
+        invalidate();
+    }
+
+    RectF moreBtnAnchor() {
+        layoutRects();
+        RectF src;
+        if (!moreBtn.isEmpty()) {
+            src = new RectF(moreBtn);
+        } else if (!wideRightPill.isEmpty()) {
+            float s = wideRightPill.height();
+            src = new RectF(wideRightPill.right - s, wideRightPill.top, wideRightPill.right, wideRightPill.bottom);
+        } else if (!bottomToolbar.isEmpty()) {
+            float s = bottomToolbar.height();
+            src = new RectF(bottomToolbar.right - s, bottomToolbar.top, bottomToolbar.right, bottomToolbar.bottom);
+        } else {
+            float sz = Ui.dpf(48);
+            src = new RectF(getWidth() - Ui.dpf(14) - sz, getHeight() - Ui.navInset - Ui.dpf(12) - sz,
+                    getWidth() - Ui.dpf(14), getHeight() - Ui.navInset - Ui.dpf(12));
+        }
+        return src;
+    }
+
+    RectF pageBtnAnchor() {
+        layoutRects();
+        float s = Math.max(Ui.dpf(40), pill.height());
+        return new RectF(pill.left, pill.top, pill.left + s, pill.bottom);
+    }
+
+    void updateTabList(List<TabManager.Tab> list, int activeIdx) {
+        tabTitles.clear();
+        if (list != null) {
+            for (TabManager.Tab t : list) {
+                String lbl = (t.title != null && !t.title.isEmpty()) ? t.title : "시작 페이지";
+                tabTitles.add(lbl);
+            }
+        }
+        this.activeTabIdx = Math.max(0, Math.min(Math.max(0, tabTitles.size() - 1), activeIdx));
+        invalidate();
+    }
+
     void updateState(TabManager.Tab tab, boolean canB, boolean canF, int count) {
         this.canBack = canB;
         this.canForward = canF;
@@ -173,12 +254,16 @@ final class SafariBar extends FrameLayout {
             this.loading = false;
             this.loadProgress = 100;
             this.secureHttps = false;
+            this.vpnSite = false;
+            this.pageTranslated = false;
         } else {
             this.fullUrl = tab.url;
             this.domainText = BrowserStore.domainOf(tab.url);
             this.loading = tab.loading;
             this.loadProgress = tab.progress;
             this.secureHttps = tab.url != null && tab.url.startsWith("https://");
+            this.vpnSite = SecurityGuard.requiresVpnForUrl(tab.url);
+            this.pageTranslated = tab.translated;
         }
         invalidate();
     }
@@ -190,7 +275,7 @@ final class SafariBar extends FrameLayout {
     }
 
     void setCollapsed(boolean min) {
-        if (editing || Ui.layoutMode == 2) min = false;
+        if (editing || Ui.layoutMode == 2 || isWideLayout()) min = false;
         collapse.to(min ? 1f : 0f);
     }
 
@@ -205,6 +290,7 @@ final class SafariBar extends FrameLayout {
         editing = on;
         if (on) {
             collapse.to(0f);
+            editP.to(1f);
             addressField.setVisibility(VISIBLE);
             addressField.setTextColor(Ui.text());
             addressField.setHintTextColor(Ui.text2());
@@ -213,6 +299,7 @@ final class SafariBar extends FrameLayout {
             addressField.requestFocus();
             showIme();
         } else {
+            editP.to(0f);
             addressField.clearFocus();
             addressField.setVisibility(GONE);
             hideIme();
@@ -240,20 +327,61 @@ final class SafariBar extends FrameLayout {
         float gap = Ui.dpf(9);
         float bottomY = H - Ui.navInset - Ui.dpf(12) - imeOffset;
         float k = collapse.value;
+        float ep = Ui.clamp(editP.value, 0f, 1f);
 
         backBtn.setEmpty();
         moreBtn.setEmpty();
         bottomToolbar.setEmpty();
+        wideLeftPill.setEmpty();
+        wideRightPill.setEmpty();
+        wideStripBg.setEmpty();
+        tabChipRects.clear();
+        addTabChipRect.setEmpty();
 
-        if (editing) {
-            float h = Ui.dpf(50);
-            float top = Ui.layoutMode == 2 ? (Ui.statusInset + Ui.dpf(10)) : (bottomY - h);
-            pill.set(pad, top, W - pad, top + h);
+        // ---- Foldable / Tablet Wide iPadOS 26 Safari Layout (>= 600dp) ----
+        if (isWideLayout()) {
+            float topY = Math.max(Ui.statusInset, Ui.dp(10)) + Ui.dpf(8);
+            float barH = Ui.dpf(44);
+            float sidePad = Ui.dpf(18);
+
+            if (editing) {
+                float pW = Math.min(W - sidePad * 2f, Ui.dpf(640));
+                pill.set((W - pW) / 2f, topY, (W + pW) / 2f, topY + barH);
+                return;
+            }
+
+            float leftW = Ui.dpf(92);   // [< | >]
+            float rightW = Ui.dpf(136); // [Share | Tabs | ...]
+            wideLeftPill.set(sidePad, topY, sidePad + leftW, topY + barH);
+            wideRightPill.set(W - sidePad - rightW, topY, W - sidePad, topY + barH);
+
+            float availW = wideRightPill.left - wideLeftPill.right - Ui.dpf(24);
+            float pW = Math.min(availW, Ui.dpf(540));
+            float pL = (W - pW) / 2f + swipeX.value * 0.5f;
+            pill.set(pL, topY, pL + pW, topY + barH);
+
+            // Live horizontal tab strip below the toolbar
+            float stripTop = topY + barH + Ui.dpf(8);
+            float stripH = Ui.dpf(34);
+            wideStripBg.set(sidePad, stripTop, W - sidePad, stripTop + stripH);
+
+            float plusSz = stripH;
+            addTabChipRect.set(wideStripBg.right - plusSz, stripTop, wideStripBg.right, stripTop + stripH);
+            float chipsAvail = addTabChipRect.left - wideStripBg.left - Ui.dpf(6);
+            int shown = Math.min(Math.max(1, tabTitles.size()), 7);
+            float chipGap = Ui.dpf(6);
+            float chipW = Math.min(Ui.dpf(190), (chipsAvail - chipGap * Math.max(0, shown - 1)) / shown);
+            float cx = wideStripBg.left;
+            for (int i = 0; i < shown; i++) {
+                tabChipRects.add(new RectF(cx, stripTop, cx + chipW, stripTop + stripH));
+                cx += chipW + chipGap;
+            }
             return;
         }
 
+        // ---- Phone Layouts ----
         if (Ui.layoutMode == 0) {
-            // iOS 26 Safari Compact Layout: [<]  [  apple.com  ↻ ]  [...]
+            // iOS 26 Safari Compact Layout: [<]  [  domain.com  ↻ ]  [...]
             float btnSz = Ui.dpf(50);
             float fullH = Ui.dpf(50);
             float minH = Ui.dpf(30);
@@ -261,24 +389,29 @@ final class SafariBar extends FrameLayout {
             float bY = Ui.lerp(bottomY, H - Ui.navInset - Ui.dpf(6), k);
             float top = bY - h;
 
-            float expLeft = pad + btnSz + gap;
-            float expRight = W - pad - btnSz - gap;
+            float expLeft = Ui.lerp(pad + btnSz + gap, pad, ep);
+            float expRight = Ui.lerp(W - pad - btnSz - gap, W - pad, ep);
             float minW = Math.min(W * 0.44f, Ui.dpf(178));
             float pL = Ui.lerp(expLeft, (W - minW) / 2f, k) + swipeX.value;
             float pR = Ui.lerp(expRight, (W + minW) / 2f, k) + swipeX.value;
             pill.set(pL, top, pR, bY);
 
-            if (k < 0.85f) {
+            float vis = (1f - k) * (1f - ep);
+            if (vis > 0.15f) {
                 float growL = Ui.dpf(3.5f) * pressBack.value;
                 float growR = Ui.dpf(3.5f) * pressMore.value;
-                float bScale = 1f - k * 0.4f;
-                float bs = btnSz * bScale;
+                float bs = btnSz * Ui.lerp(0.65f, 1f, vis);
                 float cy = top + h / 2f;
                 backBtn.set(pad - growL, cy - bs / 2f - growL, pad + bs + growL, cy + bs / 2f + growL);
                 moreBtn.set(W - pad - bs - growR, cy - bs / 2f - growR, W - pad + growR, cy + bs / 2f + growR);
             }
         } else if (Ui.layoutMode == 1) {
-            // Classic Bottom Layout: floating pill above 5-icon glass bar
+            // Classic Bottom Layout
+            if (editing) {
+                float h = Ui.dpf(50);
+                pill.set(pad, bottomY - h, W - pad, bottomY);
+                return;
+            }
             float barH = Ui.dpf(46);
             float pillH = Ui.lerp(Ui.dpf(46), Ui.dpf(30), k);
             float tTop = Ui.lerp(bottomY - barH, H + Ui.dpf(10), k);
@@ -289,12 +422,14 @@ final class SafariBar extends FrameLayout {
             float pR = Ui.lerp(W - pad, (W + minW) / 2f, k) + swipeX.value;
             pill.set(pL, pBot - pillH, pR, pBot);
         } else {
-            // Top Layout: floating address pill at top + floating 5-icon toolbar at bottom
+            // Top Layout
             float pillH = Ui.dpf(46);
             float topY = Ui.statusInset + Ui.dpf(8);
             pill.set(pad + swipeX.value, topY, W - pad + swipeX.value, topY + pillH);
-            float barH = Ui.dpf(48);
-            bottomToolbar.set(pad, bottomY - barH, W - pad, bottomY);
+            if (!editing) {
+                float barH = Ui.dpf(48);
+                bottomToolbar.set(pad, bottomY - barH, W - pad, bottomY);
+            }
         }
     }
 
@@ -319,8 +454,48 @@ final class SafariBar extends FrameLayout {
         layoutRects();
         int fg = Ui.text(), fg2 = Ui.text2();
         float k = collapse.value;
+        float ep = Ui.clamp(editP.value, 0f, 1f);
 
-        // 1. Primary floating glass shapes (pill + detached compact circles smooth-unioned on touch)
+        // 1. Wide iPadOS 26 Safari Bar + Live Tab Strip
+        if (isWideLayout()) {
+            mainGlass.tint = Ui.barTint();
+            mainGlass.strokeColor = Ui.glassStroke();
+            mainGlass.pressX = touchX; mainGlass.pressY = touchY;
+            mainGlass.pressR = Ui.dpf(54);
+            mainGlass.pressAmt = Math.max(pressPill.value, Math.max(pressBack.value, pressMore.value));
+            mainGlass.smoothK = 0f;
+            if (!wideLeftPill.isEmpty() && !wideRightPill.isEmpty()) {
+                mainGlass.shapes(pill, pill.height() / 2f,
+                        wideLeftPill, wideLeftPill.height() / 2f,
+                        wideRightPill, wideRightPill.height() / 2f);
+            } else {
+                mainGlass.shapes(pill, pill.height() / 2f, null, 0, null, 0);
+            }
+            mainGlass.alpha = 1f;
+            mainGlass.draw(c, this, backdrop);
+
+            if (!wideLeftPill.isEmpty()) {
+                float hw = wideLeftPill.width() / 2f;
+                Icons.draw(c, Icons.BACK, wideLeftPill.left + hw * 0.5f, wideLeftPill.centerY(), Ui.dpf(18),
+                        Ui.alpha(canBack ? fg : fg2, canBack ? 1f : 0.42f));
+                Icons.draw(c, Icons.FORWARD, wideLeftPill.left + hw * 1.5f, wideLeftPill.centerY(), Ui.dpf(18),
+                        Ui.alpha(canForward ? fg : fg2, canForward ? 1f : 0.42f));
+            }
+            if (!wideRightPill.isEmpty()) {
+                float sw = wideRightPill.width() / 3f;
+                Icons.draw(c, Icons.SHARE, wideRightPill.left + sw * 0.5f, wideRightPill.centerY(), Ui.dpf(18), fg);
+                Icons.draw(c, Icons.TABS, wideRightPill.left + sw * 1.5f, wideRightPill.centerY(), Ui.dpf(18), fg);
+                if (!moreHidden) {
+                    Icons.draw(c, Icons.MORE, wideRightPill.left + sw * 2.5f, wideRightPill.centerY(), Ui.dpf(18), fg);
+                }
+            }
+            drawPillContent(c, fg, fg2, 0f);
+            drawWideTabStrip(c, fg, fg2);
+            super.dispatchDraw(c);
+            return;
+        }
+
+        // 2. Phone Primary floating glass shapes
         mainGlass.tint = Ui.barTint();
         mainGlass.strokeColor = Ui.glassStroke();
         mainGlass.pressX = touchX; mainGlass.pressY = touchY;
@@ -328,15 +503,18 @@ final class SafariBar extends FrameLayout {
         mainGlass.pressAmt = Math.max(pressPill.value, Math.max(pressBack.value, pressMore.value));
         mainGlass.smoothK = Ui.dpf(10) * pressPill.value;
 
-        if (!backBtn.isEmpty() && !moreBtn.isEmpty()) {
+        boolean drawMoreShape = !moreBtn.isEmpty() && !moreHidden;
+        if (!backBtn.isEmpty() && drawMoreShape) {
             mainGlass.shapes(pill, pill.height() / 2f, backBtn, backBtn.height() / 2f, moreBtn, moreBtn.height() / 2f);
+        } else if (!backBtn.isEmpty()) {
+            mainGlass.shapes(pill, pill.height() / 2f, backBtn, backBtn.height() / 2f, null, 0);
         } else {
             mainGlass.shapes(pill, pill.height() / 2f, null, 0, null, 0);
         }
         mainGlass.alpha = 1f;
         mainGlass.draw(c, this, backdrop);
 
-        // 2. Secondary floating glass toolbar (Bottom Classic / Top modes)
+        // 3. Secondary floating glass toolbar (Bottom Classic / Top modes)
         if (!bottomToolbar.isEmpty() && bottomToolbar.top < getHeight()) {
             auxGlass.tint = Ui.barTint();
             auxGlass.strokeColor = Ui.glassStroke();
@@ -346,20 +524,62 @@ final class SafariBar extends FrameLayout {
             drawFiveIconToolbar(c, fg, fg2, 1f - k);
         }
 
-        // 3. Compact mode side icons (< and ...)
-        if (!backBtn.isEmpty() && k < 0.85f) {
-            float a = 1f - k;
-            Icons.draw(c, Icons.BACK, backBtn.centerX(), backBtn.centerY(), Ui.dpf(20), Ui.alpha(canBack ? fg : fg2, (canBack ? 1f : 0.45f) * a));
+        // 4. Compact mode side icons (< and ...)
+        float sideAlpha = (1f - k) * (1f - ep);
+        if (!backBtn.isEmpty() && sideAlpha > 0.12f) {
+            Icons.draw(c, Icons.BACK, backBtn.centerX(), backBtn.centerY(), Ui.dpf(20),
+                    Ui.alpha(canBack ? fg : fg2, (canBack ? 1f : 0.45f) * sideAlpha));
         }
-        if (!moreBtn.isEmpty() && k < 0.85f) {
-            float a = 1f - k;
-            Icons.draw(c, Icons.MORE, moreBtn.centerX(), moreBtn.centerY(), Ui.dpf(20), Ui.alpha(fg, a));
+        if (drawMoreShape && sideAlpha > 0.12f) {
+            Icons.draw(c, Icons.MORE, moreBtn.centerX(), moreBtn.centerY(), Ui.dpf(20), Ui.alpha(fg, sideAlpha));
         }
 
-        // 4. Address Pill interior
+        // 5. Address Pill interior
         drawPillContent(c, fg, fg2, k);
-
         super.dispatchDraw(c);
+    }
+
+    private void drawWideTabStrip(Canvas c, int fg, int fg2) {
+        if (tabChipRects.isEmpty()) return;
+        Paint.FontMetrics fm = chipPaint.getFontMetrics();
+        for (int i = 0; i < tabChipRects.size(); i++) {
+            RectF r = tabChipRects.get(i);
+            boolean active = (i == activeTabIdx);
+            chipFillPaint.setStyle(Paint.Style.FILL);
+            chipFillPaint.setColor(active
+                    ? (Ui.isDarkSurface() ? 0xCC282D3B : 0xEBFFFFFF)
+                    : (Ui.isDarkSurface() ? 0x661C1F2A : 0x80FFFFFF));
+            c.drawRoundRect(r, r.height() / 2f, r.height() / 2f, chipFillPaint);
+
+            chipFillPaint.setStyle(Paint.Style.STROKE);
+            chipFillPaint.setStrokeWidth(Math.max(1f, Ui.dpf(active ? 1.1f : 0.6f)));
+            chipFillPaint.setColor(active ? Ui.alpha(Ui.activeAccent(), 0.55f) : Ui.glassStroke());
+            c.drawRoundRect(r, r.height() / 2f, r.height() / 2f, chipFillPaint);
+
+            String title = i < tabTitles.size() ? tabTitles.get(i) : "탭";
+            chipPaint.setTypeface(active ? Ui.semibold : Ui.regular);
+            chipPaint.setColor(active ? fg : fg2);
+            chipPaint.setTextAlign(Paint.Align.LEFT);
+            boolean showClose = tabTitles.size() > 1 || active;
+            float maxW = Math.max(Ui.dpf(24), r.width() - Ui.dpf(showClose ? 34 : 18));
+            CharSequence ell = TextUtils.ellipsize(title, chipPaint, maxW, TextUtils.TruncateAt.END);
+            float ty = r.centerY() - (fm.ascent + fm.descent) / 2f;
+            c.drawText(ell, 0, ell.length(), r.left + Ui.dpf(12), ty, chipPaint);
+
+            if (showClose && tabTitles.size() > 1) {
+                Icons.draw(c, Icons.CLOSE, r.right - Ui.dpf(14), r.centerY(), Ui.dpf(9.5f), fg2);
+            }
+        }
+        if (!addTabChipRect.isEmpty()) {
+            chipFillPaint.setStyle(Paint.Style.FILL);
+            chipFillPaint.setColor(Ui.isDarkSurface() ? 0x881E212C : 0xB8FFFFFF);
+            c.drawRoundRect(addTabChipRect, addTabChipRect.height() / 2f, addTabChipRect.height() / 2f, chipFillPaint);
+            chipFillPaint.setStyle(Paint.Style.STROKE);
+            chipFillPaint.setStrokeWidth(Math.max(1f, Ui.dpf(0.6f)));
+            chipFillPaint.setColor(Ui.glassStroke());
+            c.drawRoundRect(addTabChipRect, addTabChipRect.height() / 2f, addTabChipRect.height() / 2f, chipFillPaint);
+            Icons.draw(c, Icons.PLUS, addTabChipRect.centerX(), addTabChipRect.centerY(), Ui.dpf(14), fg);
+        }
     }
 
     private void drawPillContent(Canvas c, int fg, int fg2, float k) {
@@ -370,7 +590,6 @@ final class SafariBar extends FrameLayout {
             return;
         }
 
-        // Subtle Safari loading progress bar along the bottom edge of the pill
         if (loading && loadProgress > 0 && loadProgress < 100) {
             float frac = Ui.clamp(loadProgress / 100f, 0.08f, 1f);
             float inset = Ui.dpf(18);
@@ -381,17 +600,15 @@ final class SafariBar extends FrameLayout {
 
         float fullA = 1f - k;
         if (fullA > 0.15f) {
-            // Left: Page Menu / Private Shield icon
-            int leftIcon = Ui.privateTheme ? Icons.PRIVATE : (domainText.isEmpty() ? Icons.SEARCH : Icons.PAGE_MENU);
-            Icons.draw(c, leftIcon, pill.left + Ui.dpf(22), pill.centerY(), Ui.dpf(17),
-                    Ui.alpha(Ui.privateTheme ? Ui.activeAccent() : fg2, fullA));
-            // Right: Reload / Stop icon (when on a website)
+            int leftIcon = Ui.privateTheme ? Icons.PRIVATE
+                    : (pageTranslated ? Icons.TRANSLATE : (vpnSite ? Icons.VPN : (domainText.isEmpty() ? Icons.SEARCH : Icons.PAGE_MENU)));
+            int leftCol = (Ui.privateTheme || pageTranslated) ? Ui.activeAccent() : (vpnSite ? 0xFF34C759 : fg2);
+            Icons.draw(c, leftIcon, pill.left + Ui.dpf(22), pill.centerY(), Ui.dpf(17), Ui.alpha(leftCol, fullA));
             if (!domainText.isEmpty()) {
                 Icons.draw(c, loading ? Icons.CLOSE : Icons.RELOAD, pill.right - Ui.dpf(22), pill.centerY(), Ui.dpf(16.5f), Ui.alpha(fg2, fullA));
             }
         }
 
-        // Centered Domain or Hint text
         String display = domainText.isEmpty() ? getContext().getString(R.string.search_hint) : domainText;
         domainPaint.setTextSize(Ui.sp(Ui.lerp(14.5f, 11.5f, k)));
         domainPaint.setTypeface(domainText.isEmpty() ? Ui.regular : Ui.semibold);
@@ -402,7 +619,6 @@ final class SafariBar extends FrameLayout {
         float ty = pill.centerY() - (fm.ascent + fm.descent) / 2f;
         c.drawText(ell, 0, ell.length(), pill.centerX(), ty, domainPaint);
 
-        // Lock dot indicator right before HTTPS domain
         if (secureHttps && !domainText.isEmpty() && k < 0.5f) {
             float tw = domainPaint.measureText(ell, 0, ell.length());
             float lx = pill.centerX() - tw / 2f - Ui.dpf(10);
@@ -435,6 +651,8 @@ final class SafariBar extends FrameLayout {
             case MotionEvent.ACTION_DOWN:
                 downX = touchX = x; downY = touchY = y;
                 swipingPill = false;
+                touchedChip = -1;
+                touchedChipClose = false;
                 if (editing) {
                     if (pill.contains(x, y) && x > pill.right - Ui.dpf(44)) {
                         if (addressField.getText().length() > 0) addressField.setText("");
@@ -446,6 +664,39 @@ final class SafariBar extends FrameLayout {
                         return false;
                     }
                     return true;
+                }
+                if (isWideLayout()) {
+                    if (!wideLeftPill.isEmpty() && hit(wideLeftPill, x, y)) {
+                        touch = T_WIDE_LEFT;
+                        pressBack.to(1f);
+                        if (x < wideLeftPill.centerX()) postDelayed(backLongPressRun, 420);
+                        return true;
+                    }
+                    if (!wideRightPill.isEmpty() && hit(wideRightPill, x, y)) {
+                        touch = T_WIDE_RIGHT;
+                        pressMore.to(1f);
+                        return true;
+                    }
+                    if (!addTabChipRect.isEmpty() && hit(addTabChipRect, x, y)) {
+                        touch = T_ADD_TAB;
+                        return true;
+                    }
+                    for (int i = 0; i < tabChipRects.size(); i++) {
+                        RectF r = tabChipRects.get(i);
+                        if (r.contains(x, y)) {
+                            touch = T_TAB_CHIP;
+                            touchedChip = i;
+                            touchedChipClose = tabTitles.size() > 1 && x > r.right - Ui.dpf(26);
+                            return true;
+                        }
+                    }
+                    if (hit(pill, x, y)) {
+                        touch = T_PILL;
+                        pressPill.to(1f);
+                        return true;
+                    }
+                    touch = T_NONE;
+                    return false;
                 }
                 if (!backBtn.isEmpty() && hit(backBtn, x, y)) {
                     touch = T_BACK;
@@ -472,13 +723,12 @@ final class SafariBar extends FrameLayout {
 
             case MotionEvent.ACTION_MOVE:
                 touchX = x; touchY = y;
-                if (touch == T_PILL && collapse.value < 0.5f) {
+                if (touch == T_PILL && collapse.value < 0.5f && !isWideLayout()) {
                     float dx = x - downX, dy = y - downY;
                     if (Math.abs(dx) > Ui.dpf(12) && Math.abs(dx) > Math.abs(dy)) {
                         swipingPill = true;
                         swipeX.snap(Ui.clamp(dx * 0.55f, -Ui.dpf(86), Ui.dpf(86)));
                     } else if (dy < -Ui.dpf(42) && Math.abs(dy) > Math.abs(dx) * 1.2f) {
-                        // Swipe up on Safari pill -> Spatial Tab Overview!
                         touch = T_NONE;
                         pressPill.to(0f);
                         swipeX.to(0f);
@@ -486,7 +736,7 @@ final class SafariBar extends FrameLayout {
                     }
                     return true;
                 }
-                if (touch == T_BACK && Math.hypot(x - downX, y - downY) > Ui.dpf(14)) {
+                if ((touch == T_BACK || touch == T_WIDE_LEFT) && Math.hypot(x - downX, y - downY) > Ui.dpf(14)) {
                     removeCallbacks(backLongPressRun);
                 }
                 return touch != T_NONE;
@@ -497,7 +747,20 @@ final class SafariBar extends FrameLayout {
                 touch = T_NONE;
                 pressBack.to(0f); pressPill.to(0f); pressMore.to(0f);
 
-                if (t == T_BACK && listener != null) {
+                if (t == T_WIDE_LEFT && listener != null) {
+                    if (x < wideLeftPill.centerX()) listener.onBack();
+                    else listener.onForward();
+                } else if (t == T_WIDE_RIGHT && listener != null) {
+                    int seg = Math.max(0, Math.min(2, (int) ((x - wideRightPill.left) / (wideRightPill.width() / 3f))));
+                    if (seg == 0) listener.onShare();
+                    else if (seg == 1) listener.onOpenTabs();
+                    else listener.onMoreMenu(moreBtnAnchor());
+                } else if (t == T_ADD_TAB && listener != null) {
+                    listener.onNewTabInline();
+                } else if (t == T_TAB_CHIP && listener != null && touchedChip >= 0) {
+                    if (touchedChipClose) listener.onCloseTabIndex(touchedChip);
+                    else listener.onSelectTabIndex(touchedChip);
+                } else if (t == T_BACK && listener != null) {
                     listener.onBack();
                 } else if (t == T_MORE && listener != null) {
                     long now = System.currentTimeMillis();
@@ -506,7 +769,7 @@ final class SafariBar extends FrameLayout {
                         listener.onOpenTabs();
                     } else {
                         lastMoreTapMs = now;
-                        listener.onMoreMenu();
+                        listener.onMoreMenu(moreBtnAnchor());
                     }
                 } else if (t == T_TOOLBAR && listener != null && !bottomToolbar.isEmpty()) {
                     int idx = Math.max(0, Math.min(4, (int) ((x - bottomToolbar.left) / (bottomToolbar.width() / 5f))));
@@ -523,7 +786,7 @@ final class SafariBar extends FrameLayout {
                     } else if (collapse.value > 0.4f) {
                         setCollapsed(false);
                     } else if (!domainText.isEmpty() && x < pill.left + Ui.dpf(40)) {
-                        if (listener != null) listener.onPageMenu();
+                        if (listener != null) listener.onPageMenu(pageBtnAnchor());
                     } else if (!domainText.isEmpty() && x > pill.right - Ui.dpf(40)) {
                         if (listener != null) listener.onReloadOrStop();
                     } else {

@@ -24,9 +24,9 @@ import android.widget.TextView;
 import java.util.List;
 
 /**
- * Authentic iOS 26 Safari Spatial Tab Overview:
- * - Rich miniature window cards (with actual Start Page artwork preview when on Start Page)
- * - Floating bottom Liquid Glass bar: [+] | Segmented (탭 / 비밀) with refracting lens | [완료]
+ * Authentic iOS 26 / iPadOS 26 Safari Spatial Tab Overview:
+ * - Responsive 2 (phone) / 3 (foldable) / 4 (tablet) columns with staggered entrance animations.
+ * - Critically damped bottom Liquid Glass control bar (no bounce).
  */
 final class TabOverviewView extends FrameLayout {
     interface Listener {
@@ -85,8 +85,9 @@ final class TabOverviewView extends FrameLayout {
     void applyInsets() {
         int safeTop = Math.max(Ui.statusInset, Ui.dp(24));
         int safeBot = Math.max(Ui.navInset, Ui.dp(12));
+        int hPad = Ui.isWide() ? Ui.dp(28) : Ui.dp(14);
         topRow.setPadding(Ui.dp(20), safeTop + Ui.dp(14), Ui.dp(20), Ui.dp(10));
-        scroll.setPadding(Ui.dp(14), safeTop + Ui.dp(68), Ui.dp(14), safeBot + Ui.dp(98));
+        scroll.setPadding(hPad, safeTop + Ui.dp(68), hPad, safeBot + Ui.dp(98));
         if (controlBar.getLayoutParams() != null) {
             controlBar.getLayoutParams().height = Ui.dp(96) + safeBot;
             controlBar.requestLayout();
@@ -105,19 +106,32 @@ final class TabOverviewView extends FrameLayout {
         clearPrivBtn.setVisibility(priv && !list.isEmpty() ? VISIBLE : GONE);
 
         rowsHost.removeAllViews();
-        int wDp = Math.round(getResources().getDisplayMetrics().widthPixels / Ui.density);
-        int cols = wDp >= 640 ? 3 : 2;
+        int curW = getWidth() > 0 ? getWidth() : Ui.screenW;
+        int wDp = Math.round(curW / Ui.density);
+        int cols = wDp >= 840 ? 4 : (wDp >= 600 ? 3 : 2);
+        int cardH = wDp >= 840 ? 218 : (wDp >= 600 ? 210 : 198);
         Context c = getContext();
 
+        int cardIdx = 0;
         for (int rowStart = 0; rowStart < list.size(); rowStart += cols) {
             LinearLayout row = new LinearLayout(c);
             row.setOrientation(LinearLayout.HORIZONTAL);
             for (int col = 0; col < cols; col++) {
                 int idx = rowStart + col;
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-                lp.setMargins(Ui.dp(6), Ui.dp(6), Ui.dp(6), Ui.dp(12));
+                lp.setMargins(Ui.dp(7), Ui.dp(7), Ui.dp(7), Ui.dp(14));
                 if (idx < list.size()) {
-                    row.addView(buildTabCard(c, list.get(idx), priv, idx, idx == active), lp);
+                    View card = buildTabCard(c, list.get(idx), priv, idx, idx == active, cardH);
+                    if (!"robolectric".equals(android.os.Build.FINGERPRINT)) {
+                        card.setAlpha(0f);
+                        card.setScaleX(0.94f);
+                        card.setScaleY(0.94f);
+                        card.animate().alpha(1f).scaleX(1f).scaleY(1f)
+                                .setStartDelay(Math.min(cardIdx * 24L, 160L))
+                                .setDuration(240).setInterpolator(Ui.EMPHASIZED).start();
+                    }
+                    cardIdx++;
+                    row.addView(card, lp);
                 } else {
                     row.addView(new View(c), lp);
                 }
@@ -127,12 +141,11 @@ final class TabOverviewView extends FrameLayout {
         controlBar.syncMode(priv);
     }
 
-    private View buildTabCard(Context c, TabManager.Tab t, boolean priv, int idx, boolean isCur) {
+    private View buildTabCard(Context c, TabManager.Tab t, boolean priv, int idx, boolean isCur, int cardHeightDp) {
         LinearLayout wrap = new LinearLayout(c);
         wrap.setOrientation(LinearLayout.VERTICAL);
         wrap.setGravity(Gravity.CENTER_HORIZONTAL);
 
-        // Rounded miniature window card (exact iOS Safari proportions)
         FrameLayout card = new FrameLayout(c);
         GradientDrawable bg = Ui.roundStroke(Ui.card(), isCur ? Ui.activeAccent() : Ui.glassStroke(), isCur ? 2.4f : 0.8f, 20);
         card.setBackground(bg);
@@ -145,7 +158,6 @@ final class TabOverviewView extends FrameLayout {
             iv.setImageBitmap(t.thumbnail);
             card.addView(iv, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         } else {
-            // Crisp miniature Safari Start Page preview (4x2 tiny icons + ambient gradient)
             View miniStart = new View(c) {
                 final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
                 final RectF rf = new RectF();
@@ -167,7 +179,6 @@ final class TabOverviewView extends FrameLayout {
                         rf.set(x, y, x + sq, y + sq);
                         cv.drawRoundRect(rf, sq * 0.28f, sq * 0.28f, p);
                     }
-                    // Tiny shield card bar
                     p.setColor(priv ? 0x33FFFFFF : (Ui.dark ? 0x22FFFFFF : 0xAAFFFFFF));
                     rf.set(padX, topY + sq * 2.7f, w - padX, topY + sq * 3.55f);
                     cv.drawRoundRect(rf, Ui.dpf(8), Ui.dpf(8), p);
@@ -176,7 +187,6 @@ final class TabOverviewView extends FrameLayout {
             card.addView(miniStart, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         }
 
-        // Circular translucent close pill in top-right corner of card
         View closeBtn = new View(c) {
             final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
             @Override protected void onDraw(Canvas cv) {
@@ -191,9 +201,9 @@ final class TabOverviewView extends FrameLayout {
         card.addView(closeBtn, clp);
 
         card.setOnClickListener(v -> listener.onSelectTab(priv, idx));
-        wrap.addView(card, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(198)));
+        Ui.press(card, 0.96f);
+        wrap.addView(card, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(cardHeightDp)));
 
-        // Caption below card (authentic iOS Safari tab label placement)
         TextView cap = Ui.text(c, t.title == null || t.title.isEmpty() ? "시작 페이지" : t.title, 12.5f,
                 isCur ? Ui.semibold : Ui.regular, isCur ? Ui.text() : Ui.text2());
         cap.setMaxLines(1);
@@ -210,8 +220,8 @@ final class TabOverviewView extends FrameLayout {
         private final AuroraGlass.Surface lensGlass = new AuroraGlass.Surface();
         private final RenderNode activeNode = new RenderNode("tab-seg-active");
         private final RectF addRect = new RectF(), segRect = new RectF(), doneRect = new RectF(), lensRect = new RectF();
-        private final Ui.Spring segPos = new Ui.Spring(420f, 0.74f, 0.002f);
-        private final Ui.Spring segLift = new Ui.Spring(540f, 0.78f, 0.002f);
+        private final Ui.Spring segPos = new Ui.Spring(440f, 1.0f, 0.002f);
+        private final Ui.Spring segLift = new Ui.Spring(540f, 1.0f, 0.002f);
         private final TextPaint tp = new TextPaint(Paint.ANTI_ALIAS_FLAG);
         private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
         private int hitZone;
@@ -239,7 +249,7 @@ final class TabOverviewView extends FrameLayout {
         private void layoutBar() {
             int W = getWidth(), H = getHeight();
             float h = Ui.dpf(50);
-            float pad = Ui.dpf(16);
+            float pad = Ui.isWide() ? Math.max(Ui.dpf(24), (W - Ui.dpf(520)) / 2f) : Ui.dpf(16);
             float bottom = H - Ui.navInset - Ui.dpf(14);
             float top = bottom - h;
             addRect.set(pad, top, pad + h, bottom);

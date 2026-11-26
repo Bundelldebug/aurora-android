@@ -16,25 +16,26 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 /**
- * Authentic iOS 26 Safari Start Page (zero marketing cards or generic AI clutter):
- * - Clean atmospheric wallpaper gradient (customizable via bottom '편집' pill) or Safari Private Shield.
- * - 4-column Favorites grid with crisp vector brand icons & soft elevation.
- * - Compact single-row Safari Privacy Report shield card.
- * - Installed Web Apps & Reading List sections shown cleanly when populated.
+ * Clean iOS 26 / iPadOS 26 Safari Start Page (zero AI clutter):
+ * - Responsive centered max-720dp container with 6-column favorites on foldable/tablet & 4-column on phone.
+ * - Interactive single-row Privacy & VPN Shield bar tapping directly into Security & NordVPN settings.
+ * - Subtle staggered entrance motion on non-test runs.
  */
 final class StartPageView extends ScrollView {
     interface Listener {
         void onOpenUrl(String url);
+        void onOpenSecurityVpn();
         void onOpenExtensions();
         void onOpenSync();
         void onOpenSettings();
         void onRemoveBookmark(BrowserStore.Bookmark bm);
     }
 
+    private final LinearLayout outer;
     private final LinearLayout body;
     private final Listener listener;
     private final Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private int wallpaperIdx = 0; // 0 = Polar Mist, 1 = Dawn Rose, 2 = Ocean Glass, 3 = Pure Clean
+    private int wallpaperIdx = 0;
 
     StartPageView(Context c, Listener listener) {
         super(c);
@@ -42,9 +43,14 @@ final class StartPageView extends ScrollView {
         setWillNotDraw(false);
         setFillViewport(true);
         wallpaperIdx = Ui.prefs(c).getInt("wallpaper_idx", 0);
+
+        outer = new LinearLayout(c);
+        outer.setOrientation(LinearLayout.VERTICAL);
+        outer.setGravity(Gravity.CENTER_HORIZONTAL);
         body = new LinearLayout(c);
         body.setOrientation(LinearLayout.VERTICAL);
-        addView(body, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        outer.addView(body, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        addView(outer, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     }
 
     @Override protected void onDraw(Canvas c) {
@@ -74,9 +80,8 @@ final class StartPageView extends ScrollView {
                 int[] pal = lightPalettes[wallpaperIdx % lightPalettes.length];
                 bgPaint.setShader(new LinearGradient(0, 0, W * 0.45f, H, pal, new float[]{0f, 0.5f, 1f}, Shader.TileMode.CLAMP));
                 c.drawRect(0, 0, W, H, bgPaint);
-                // Soft ambient aurora bloom in upper right (like iOS 26 Safari stock wallpaper)
                 if (wallpaperIdx != 3) {
-                    int glow = wallpaperIdx == 1 ? 0x33F472B6 : (wallpaperIdx == 2 ? 0x2E2DD4BF : 0x3038BDF8);
+                    int glow = wallpaperIdx == 1 ? 0x2DF472B6 : (wallpaperIdx == 2 ? 0x2A2DD4BF : 0x2B38BDF8);
                     bgPaint.setShader(new RadialGradient(W * 0.85f, H * 0.14f, W * 0.72f, glow, 0x00FFFFFF, Shader.TileMode.CLAMP));
                     c.drawRect(0, 0, W, H, bgPaint);
                 }
@@ -89,12 +94,21 @@ final class StartPageView extends ScrollView {
     void rebuild() {
         body.removeAllViews();
         Context c = getContext();
-        int safeTop = Math.max(Ui.statusInset, Ui.dp(24));
-        int topPad = safeTop + Ui.dp(Ui.layoutMode == 2 ? 78 : 22);
-        int botPad = Math.max(Ui.navInset, Ui.dp(12)) + Ui.dp(118);
-        body.setPadding(Ui.dp(20), topPad, Ui.dp(20), botPad);
+        int curW = getWidth() > 0 ? getWidth() : Ui.screenW;
+        boolean wide = (curW / Ui.density) >= 600f;
+        int cols = wide ? 6 : 4;
 
-        // Safari Private Browsing header card (concise, exact Safari style)
+        LinearLayout.LayoutParams blp = (LinearLayout.LayoutParams) body.getLayoutParams();
+        blp.width = wide ? Math.min(curW - Ui.dp(48), Ui.dp(720)) : ViewGroup.LayoutParams.MATCH_PARENT;
+        body.setLayoutParams(blp);
+
+        int safeTop = Math.max(Ui.statusInset, Ui.dp(20));
+        int topPad = wide ? (safeTop + Ui.dp(116)) : (safeTop + Ui.dp(Ui.layoutMode == 2 ? 78 : 24));
+        int botPad = wide ? (Math.max(Ui.navInset, Ui.dp(16)) + Ui.dp(44)) : (Math.max(Ui.navInset, Ui.dp(12)) + Ui.dp(118));
+        int hPad = wide ? Ui.dp(12) : Ui.dp(20);
+        body.setPadding(hPad, topPad, hPad, botPad);
+
+        // Safari Private Browsing card
         if (Ui.privateTheme) {
             LinearLayout priv = glassCard(c);
             priv.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(14));
@@ -117,13 +131,14 @@ final class StartPageView extends ScrollView {
             body.addView(priv, cardLp(14));
         }
 
-        // 1. 즐겨찾기 (Safari 4-column squircle icon rows with crisp vector brand badges)
+        // 1. 즐겨찾기 (4-col on phone, 6-col on foldable/tablet)
         body.addView(sectionHeader(c, "즐겨찾기", null, null));
         int totalBm = BrowserStore.bookmarks.size();
-        for (int rowStart = 0; rowStart < totalBm; rowStart += 4) {
+        int iconDp = wide ? 64 : 60;
+        for (int rowStart = 0; rowStart < totalBm; rowStart += cols) {
             LinearLayout row = new LinearLayout(c);
             row.setOrientation(LinearLayout.HORIZONTAL);
-            for (int col = 0; col < 4; col++) {
+            for (int col = 0; col < cols; col++) {
                 int idx = rowStart + col;
                 LinearLayout item = new LinearLayout(c);
                 item.setOrientation(LinearLayout.VERTICAL);
@@ -137,7 +152,7 @@ final class StartPageView extends ScrollView {
                         }
                     };
                     iconView.setElevation(Ui.dpf(Ui.isDarkSurface() ? 4 : 6));
-                    item.addView(iconView, new LinearLayout.LayoutParams(Ui.dp(60), Ui.dp(60)));
+                    item.addView(iconView, new LinearLayout.LayoutParams(Ui.dp(iconDp), Ui.dp(iconDp)));
 
                     TextView lbl = Ui.text(c, bm.title, 12f, Ui.medium, Ui.text());
                     lbl.setMaxLines(1);
@@ -158,36 +173,43 @@ final class StartPageView extends ScrollView {
             body.addView(row, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         }
 
-        // 2. 개인정보 보호 리포트 (Authentic Safari compact single-row shield card)
-        body.addView(sectionHeader(c, "개인정보 보호 리포트", null, null));
+        // 2. 개인정보 및 보안 (Compact Safari shield bar + live NordVPN status chip)
+        body.addView(sectionHeader(c, "개인정보 및 보안", null, null));
         LinearLayout pr = glassCard(c);
         pr.setOrientation(LinearLayout.HORIZONTAL);
         pr.setGravity(Gravity.CENTER_VERTICAL);
-        pr.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(14));
+        pr.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(14), Ui.dp(14));
 
-        LinearLayout shieldCol = new LinearLayout(c);
-        shieldCol.setOrientation(LinearLayout.HORIZONTAL);
-        shieldCol.setGravity(Gravity.CENTER_VERTICAL);
+        boolean vpnOn = SecurityGuard.isVpnActive(c);
         View shIc = new View(c) {
             @Override protected void onDraw(Canvas canvas) {
-                Icons.draw(canvas, Icons.SHIELD, getWidth() / 2f, getHeight() / 2f, Ui.dpf(22), Ui.activeAccent());
+                Icons.draw(canvas, Icons.SHIELD, getWidth() / 2f, getHeight() / 2f, Ui.dpf(21), vpnOn ? 0xFF34C759 : Ui.activeAccent());
             }
         };
-        shieldCol.addView(shIc, new LinearLayout.LayoutParams(Ui.dp(26), Ui.dp(26)));
-        TextView num = Ui.text(c, String.valueOf(BrowserStore.blockedTrackers), 22f, Ui.bold, Ui.text());
-        num.setPadding(Ui.dp(6), 0, Ui.dp(14), 0);
-        shieldCol.addView(num);
-        pr.addView(shieldCol);
+        pr.addView(shIc, new LinearLayout.LayoutParams(Ui.dp(24), Ui.dp(24)));
+        TextView num = Ui.text(c, String.valueOf(BrowserStore.blockedTrackers), 21f, Ui.bold, Ui.text());
+        num.setPadding(Ui.dp(8), 0, Ui.dp(12), 0);
+        pr.addView(num);
 
         TextView prTxt = Ui.text(c,
                 BrowserStore.blockedTrackers == 0
-                        ? "추적기 차단이 활성화되어 있습니다."
-                        : "추적기가 프로파일링하는 것을 차단했습니다.",
+                        ? "추적기·피싱 보호 활성화"
+                        : "추적기 차단이 활성화되어 있습니다.",
                 13f, Ui.regular, Ui.text2());
+        prTxt.setMaxLines(1);
+        prTxt.setEllipsize(TextUtils.TruncateAt.END);
         pr.addView(prTxt, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        String vpnTag = vpnOn ? SecurityGuard.vpnLabel(Ui.vpnProvider) : (BrowserStore.vpnDomains.isEmpty() ? "VPN" : "VPN " + BrowserStore.vpnDomains.size());
+        TextView vpnChip = Ui.text(c, vpnTag, 11.5f, Ui.semibold, vpnOn ? 0xFF34C759 : Ui.activeAccent());
+        vpnChip.setPadding(Ui.dp(10), Ui.dp(5), Ui.dp(10), Ui.dp(5));
+        vpnChip.setBackground(Ui.round(Ui.alpha(vpnOn ? 0xFF34C759 : Ui.activeAccent(), 0.14f), 100));
+        pr.addView(vpnChip);
+        pr.setOnClickListener(v -> listener.onOpenSecurityVpn());
+        Ui.press(pr, 0.98f);
         body.addView(pr, cardLp(10));
 
-        // 3. 설치된 웹 앱 (only shown when user installed PWAs)
+        // 3. 설치된 웹 앱
         if (!BrowserStore.webApps.isEmpty()) {
             body.addView(sectionHeader(c, "웹 앱", null, null));
             LinearLayout appCard = glassCard(c);
@@ -224,7 +246,7 @@ final class StartPageView extends ScrollView {
             body.addView(appCard, cardLp(10));
         }
 
-        // 4. 읽기 목록 (only shown when populated)
+        // 4. 읽기 목록
         if (!BrowserStore.readingList.isEmpty()) {
             body.addView(sectionHeader(c, "읽기 목록", null, null));
             LinearLayout rlCard = glassCard(c);
@@ -245,23 +267,35 @@ final class StartPageView extends ScrollView {
             body.addView(rlCard, cardLp(10));
         }
 
-        // 5. Authentic Safari bottom '편집' frosted pill button (cycles Start Page wallpaper or opens Extensions/Sync)
+        // 5. Safari bottom '편집' frosted pill
         LinearLayout foot = new LinearLayout(c);
         foot.setOrientation(LinearLayout.HORIZONTAL);
         foot.setGravity(Gravity.CENTER);
-        foot.setPadding(0, Ui.dp(24), 0, Ui.dp(8));
+        foot.setPadding(0, Ui.dp(22), 0, Ui.dp(8));
 
-        TextView editBtn = Ui.text(c, "편집", 13.5f, Ui.semibold, Ui.text());
-        editBtn.setPadding(Ui.dp(22), Ui.dp(9), Ui.dp(22), Ui.dp(9));
+        TextView editBtn = Ui.text(c, "배경 전환", 13f, Ui.semibold, Ui.text());
+        editBtn.setPadding(Ui.dp(20), Ui.dp(9), Ui.dp(20), Ui.dp(9));
         editBtn.setBackground(Ui.roundStroke(Ui.alpha(Ui.card(), Ui.isDarkSurface() ? 0.65f : 0.78f), Ui.glassStroke(), 0.7f, 100));
         editBtn.setOnClickListener(v -> {
             wallpaperIdx = (wallpaperIdx + 1) % 4;
             Ui.prefs(c).edit().putInt("wallpaper_idx", wallpaperIdx).apply();
             invalidate();
         });
+        Ui.press(editBtn, 0.94f);
         foot.addView(editBtn);
         body.addView(foot);
 
+        // Clean entrance stagger on real devices
+        if (!"robolectric".equals(android.os.Build.FINGERPRINT)) {
+            int n = body.getChildCount();
+            for (int i = 0; i < n; i++) {
+                View ch = body.getChildAt(i);
+                ch.setAlpha(0f);
+                ch.setTranslationY(Ui.dpf(10));
+                ch.animate().alpha(1f).translationY(0f).setStartDelay(i * 22L)
+                        .setDuration(260).setInterpolator(Ui.EMPHASIZED).start();
+            }
+        }
         invalidate();
     }
 

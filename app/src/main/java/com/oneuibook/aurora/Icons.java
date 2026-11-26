@@ -18,7 +18,7 @@ final class Icons {
             PAGE_MENU = 11, PRIVATE = 12, PUZZLE = 13, DESKTOP = 14,
             PWA = 15, CLOUD = 16, SHIELD = 17, READER = 18, SETTINGS = 19,
             CHECK = 20, LOCK = 21, STAR = 22, HISTORY = 23, DOWNLOAD = 24,
-            FIND = 25, COMPASS = 26, EDIT = 27;
+            FIND = 25, COMPASS = 26, EDIT = 27, TRANSLATE = 28, VPN = 29;
 
     private static final Paint P = new Paint(Paint.ANTI_ALIAS_FLAG);
     private static final Path PATH = new Path();
@@ -248,6 +248,27 @@ final class Icons {
                 P.setStyle(Paint.Style.FILL);
                 c.drawCircle(cx - r * 0.22f, cy - r * 0.34f, r * 0.20f, P);
                 c.drawCircle(cx + r * 0.24f, cy + r * 0.34f, r * 0.20f, P);
+                break;
+            case TRANSLATE:
+                // Minimalist SF-style translate mark (globe meridian + horizontal bar)
+                c.drawCircle(cx, cy, r * 0.78f, P);
+                RF.set(cx - r * 0.36f, cy - r * 0.78f, cx + r * 0.36f, cy + r * 0.78f);
+                c.drawOval(RF, P);
+                c.drawLine(cx - r * 0.74f, cy, cx + r * 0.74f, cy, P);
+                break;
+            case VPN:
+                // Shield + keyhole silhouette for NordVPN / Per-site VPN
+                PATH.reset();
+                PATH.moveTo(cx, cy - r * 0.82f);
+                PATH.lineTo(cx + r * 0.64f, cy - r * 0.50f);
+                PATH.lineTo(cx + r * 0.58f, cy + r * 0.14f);
+                PATH.quadTo(cx + r * 0.42f, cy + r * 0.60f, cx, cy + r * 0.82f);
+                PATH.quadTo(cx - r * 0.42f, cy + r * 0.60f, cx - r * 0.58f, cy + r * 0.14f);
+                PATH.lineTo(cx - r * 0.64f, cy - r * 0.50f);
+                PATH.close();
+                c.drawPath(PATH, P);
+                c.drawCircle(cx, cy - r * 0.08f, r * 0.16f, P);
+                c.drawLine(cx, cy + r * 0.08f, cx, cy + r * 0.34f, P);
                 break;
         }
     }

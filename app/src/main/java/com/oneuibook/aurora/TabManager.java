@@ -53,6 +53,10 @@ final class TabManager {
         void onFullscreenHide();
         void onFileChooser(ValueCallback<Uri[]> cb, WebChromeClient.FileChooserParams params);
         void onInstallStoreExtension(String extId);
+        default void onSecurityWarning(Tab tab, String url, String reason) {}
+        default void onVpnRequired(Tab tab, String url, String domain) {}
+        default void onDangerousDownload(String fileName, String url, String mimeType, Runnable proceed) { proceed.run(); }
+        default void onPageTranslated(Tab tab) {}
     }
 
     static final class Tab {
@@ -64,6 +68,7 @@ final class TabManager {
         boolean loading;
         boolean desktopMode;
         boolean readerMode;
+        boolean translated;
         Bitmap favicon;
         Bitmap thumbnail;
         Bundle savedState;
@@ -272,17 +277,28 @@ final class TabManager {
     }
 
     void loadUrl(Tab t, String url) {
-        if (t == null) return;
-        t.url = url;
+        if (t == null || url == null) return;
+        String cleanUrl = SecurityGuard.maybeUpgradeHttps(SecurityGuard.sanitizeUrl(url));
+        SecurityGuard.Assessment risk = SecurityGuard.assessUrl(cleanUrl);
+        if (risk.risk == SecurityGuard.RISK_DANGEROUS) {
+            listener.onSecurityWarning(t, cleanUrl, risk.reason);
+            return;
+        }
+        if (SecurityGuard.requiresVpnForUrl(cleanUrl) && !SecurityGuard.isVpnActive(ctx)) {
+            listener.onVpnRequired(t, cleanUrl, BrowserStore.domainOf(cleanUrl));
+            return;
+        }
+        t.url = cleanUrl;
         t.readerMode = false;
+        t.translated = false;
         // Auto-enable desktop mode on Chrome Web Store so extensions can be browsed & installed seamlessly
-        if (ExtensionManager.isChromeWebStore(url)) t.desktopMode = true;
-        else if (BrowserStore.desktopHosts.contains(BrowserStore.domainOf(url))) t.desktopMode = true;
+        if (ExtensionManager.isChromeWebStore(cleanUrl)) t.desktopMode = true;
+        else if (BrowserStore.desktopHosts.contains(BrowserStore.domainOf(cleanUrl))) t.desktopMode = true;
 
         ensureWebView(t);
         applyTabSettings(t);
         if (t == activeTab()) attachActiveTab();
-        t.webView.loadUrl(url);
+        t.webView.loadUrl(cleanUrl);
         persistSession();
         listener.onPageUpdated(t);
     }
@@ -443,6 +459,10 @@ final class TabManager {
         } catch (Throwable ignored) {}
 
         wv.addJavascriptInterface(new ExtensionManager.Bridge(ctx, listener::onInstallStoreExtension), "AuroraExt");
+        wv.addJavascriptInterface(new PageTranslator.Bridge(wv, () -> {
+            t.translated = true;
+            listener.onPageTranslated(t);
+        }), "AuroraTranslate");
 
         wv.setWebViewClient(new WebViewClient() {
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest req) {
@@ -473,6 +493,20 @@ final class TabManager {
                 String scheme = u.getScheme();
                 if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme) || "about".equalsIgnoreCase(scheme)) {
                     String sUrl = u.toString();
+                    SecurityGuard.Assessment risk = SecurityGuard.assessUrl(sUrl);
+                    if (risk.risk == SecurityGuard.RISK_DANGEROUS) {
+                        listener.onSecurityWarning(t, sUrl, risk.reason);
+                        return true;
+                    }
+                    if (SecurityGuard.requiresVpnForUrl(sUrl) && !SecurityGuard.isVpnActive(ctx)) {
+                        listener.onVpnRequired(t, sUrl, BrowserStore.domainOf(sUrl));
+                        return true;
+                    }
+                    String upgraded = SecurityGuard.maybeUpgradeHttps(SecurityGuard.sanitizeUrl(sUrl));
+                    if (!upgraded.equals(sUrl)) {
+                        view.loadUrl(upgraded);
+                        return true;
+                    }
                     if (ExtensionManager.isChromeWebStore(sUrl) && !t.desktopMode) {
                         t.desktopMode = true;
                         applyTabSettings(t);
@@ -492,8 +526,10 @@ final class TabManager {
             @Override public void onPageStarted(WebView view, String url, Bitmap fav) {
                 t.url = url;
                 t.loading = true;
+                t.translated = false;
                 t.progress = 12;
                 if (fav != null) t.favicon = fav;
+                if (Ui.securityShield) view.evaluateJavascript(SecurityGuard.HARDENING_JS, null);
                 ExtensionManager.injectForPage(ctx, view, url, true);
                 listener.onPageUpdated(t);
             }
@@ -559,20 +595,27 @@ final class TabManager {
         });
 
         wv.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) -> {
-            try {
-                String fn = URLUtil.guessFileName(url, contentDisposition, mimeType);
-                DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
-                req.setTitle(fn);
-                req.setMimeType(mimeType);
-                req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-                req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fn);
-                DownloadManager dm = (DownloadManager) ctx.getSystemService(Context.DOWNLOAD_SERVICE);
-                if (dm != null) {
-                    dm.enqueue(req);
-                    Toast.makeText(ctx, "다운로드 시작: " + fn, Toast.LENGTH_SHORT).show();
+            String fn = URLUtil.guessFileName(url, contentDisposition, mimeType);
+            Runnable enqueue = () -> {
+                try {
+                    DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
+                    req.setTitle(fn);
+                    req.setMimeType(mimeType);
+                    req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                    req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fn);
+                    DownloadManager dm = (DownloadManager) ctx.getSystemService(Context.DOWNLOAD_SERVICE);
+                    if (dm != null) {
+                        dm.enqueue(req);
+                        Toast.makeText(ctx, "다운로드 시작: " + fn, Toast.LENGTH_SHORT).show();
+                    }
+                } catch (Throwable e) {
+                    Toast.makeText(ctx, "다운로드 실패: " + e.getMessage(), Toast.LENGTH_SHORT).show();
                 }
-            } catch (Throwable e) {
-                Toast.makeText(ctx, "다운로드 실패: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            };
+            if (SecurityGuard.isDangerousDownload(fn)) {
+                listener.onDangerousDownload(fn, url, mimeType, enqueue);
+            } else {
+                enqueue.run();
             }
         });
 

@@ -1,13 +1,15 @@
 package com.oneuibook.aurora;
 
-import android.app.AlertDialog;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Path;
 import android.graphics.RectF;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.WebSettings;
@@ -21,120 +23,277 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
- * Authentic iOS 26 Safari Liquid Glass Popover & Sheets:
- * - Right-aligned monochrome SF icons (exact iOS 26 UIMenu convention)
- * - Custom iOS 26 capsule glass toggles (Icons.GlassToggle) instead of stock Android switches
- * - Crisp 0.5dp hairlines and concise native Apple-grade copy
+ * Authentic iOS 26 / iPadOS 26 Safari Liquid Glass Morphing Popover & Sheets:
+ * - Prism-grade button-to-popover morph animation: the '...' glass circle grows seamlessly into the menu
+ *   and shrinks back into the exact button rect on dismiss (zero abrupt jump or stock AlertDialog chrome).
+ * - Responsive wide-screen (foldable/tablet) 372dp anchored popover layout.
+ * - Includes Google Translate selector, Built-in Security Shield + NordVPN per-site routing,
+ *   VPN/Danger interstitials, Extensions, Bookmarks/Reading/History, Cloud Sync, and Settings.
  */
 final class GlassSheet extends FrameLayout {
     private final AuroraGlass.Backdrop backdrop;
     private final AuroraGlass.Surface glass = new AuroraGlass.Surface();
-    private final FrameLayout cardContainer;
     private final ScrollView scroll;
     private final LinearLayout content;
-    private final RectF cardRect = new RectF();
+
+    private final RectF anchor = new RectF();
+    private final RectF target = new RectF();
+    private final RectF cur = new RectF();
+    private final Path clipPath = new Path();
+    private final Ui.Spring morph = new Ui.Spring(360f, 0.94f, 0.002f);
+
+    private float blobRadius;
     private boolean open;
+    private boolean closing;
+    private boolean hasAnchor;
+    private int anchorIcon = Icons.MORE;
+    private Runnable onRestoreSource;
 
     GlassSheet(Context c, AuroraGlass.Backdrop backdrop) {
         super(c);
         this.backdrop = backdrop;
         setWillNotDraw(false);
         setVisibility(GONE);
-        setBackgroundColor(0x3D000000);
-        setOnClickListener(v -> dismiss());
-
-        cardContainer = new FrameLayout(c) {
-            @Override protected void dispatchDraw(Canvas canvas) {
-                cardRect.set(0, 0, getWidth(), getHeight());
-                glass.tint = Ui.sheetTint();
-                glass.strokeColor = Ui.glassStroke();
-                glass.blurDp = 16f;
-                glass.refractDp = 14f;
-                glass.edgeDp = 24f;
-                glass.chroma = 0.24f;
-                glass.fresnelAmt = 0.58f;
-                glass.shapes(cardRect, Ui.dpf(28), null, 0, null, 0);
-                glass.draw(canvas, this, backdrop);
-                super.dispatchDraw(canvas);
-            }
-        };
-        cardContainer.setWillNotDraw(false);
-        cardContainer.setClipToOutline(true);
-        cardContainer.setOnClickListener(v -> {});
 
         scroll = new ScrollView(c);
+        scroll.setVerticalScrollBarEnabled(false);
         content = new LinearLayout(c);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(18));
+        content.setPadding(Ui.dp(14), Ui.dp(14), Ui.dp(14), Ui.dp(16));
         scroll.addView(content, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        cardContainer.addView(scroll, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        addView(scroll, new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        LayoutParams lp = new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM);
-        lp.leftMargin = Ui.dp(14);
-        lp.rightMargin = Ui.dp(14);
-        lp.bottomMargin = Ui.navInset + Ui.dp(14);
-        addView(cardContainer, lp);
+        morph.onUpdate = this::onMorphUpdate;
+        morph.onEnd = () -> {
+            if (closing) {
+                closing = false;
+                open = false;
+                setVisibility(GONE);
+                content.removeAllViews();
+                if (onRestoreSource != null) {
+                    Runnable r = onRestoreSource;
+                    onRestoreSource = null;
+                    r.run();
+                }
+            }
+        };
     }
 
-    boolean isOpen() { return open; }
+    boolean isOpen() { return open && !closing; }
 
     void dismiss() {
-        if (!open) return;
-        open = false;
+        if (!open || closing) return;
+        closing = true;
         if ("robolectric".equals(android.os.Build.FINGERPRINT)) {
+            closing = false;
+            open = false;
             setVisibility(GONE);
             content.removeAllViews();
+            if (onRestoreSource != null) {
+                Runnable r = onRestoreSource;
+                onRestoreSource = null;
+                r.run();
+            }
             return;
         }
-        animate().alpha(0f).setDuration(200).setInterpolator(Ui.EMPHASIZED).start();
-        cardContainer.animate().translationY(Ui.dpf(44)).scaleX(0.95f).scaleY(0.95f).alpha(0f)
-                .setDuration(210).setInterpolator(Ui.EMPHASIZED)
-                .withEndAction(() -> {
-                    setVisibility(GONE);
-                    setAlpha(1f);
-                    content.removeAllViews();
-                }).start();
+        morph.stiffness = 440f;
+        morph.dampingRatio = 1.0f;
+        morph.to(0f);
     }
 
-    private void showBuilt() {
+    private void showBuilt(RectF fromAnchor, int iconId, Runnable restoreSource) {
+        if (onRestoreSource != null && restoreSource != onRestoreSource) {
+            onRestoreSource.run();
+        }
+        boolean wasOpen = open && !closing;
         open = true;
+        closing = false;
+        if (fromAnchor != null && !fromAnchor.isEmpty()) {
+            anchor.set(fromAnchor);
+            hasAnchor = true;
+            anchorIcon = iconId;
+            onRestoreSource = restoreSource;
+        } else if (!wasOpen) {
+            hasAnchor = false;
+            onRestoreSource = null;
+        }
+
         setVisibility(VISIBLE);
         scroll.scrollTo(0, 0);
-        if (cardContainer.getLayoutParams() instanceof LayoutParams) {
-            ((LayoutParams) cardContainer.getLayoutParams()).bottomMargin = Math.max(Ui.navInset, Ui.dp(12)) + Ui.dp(14);
-        }
         requestLayout();
-        invalidate();
+
         if ("robolectric".equals(android.os.Build.FINGERPRINT)) {
-            setAlpha(1f);
-            cardContainer.setAlpha(1f);
-            cardContainer.setTranslationY(0f);
-            cardContainer.setScaleX(1f);
-            cardContainer.setScaleY(1f);
+            morph.snap(1f);
+            onMorphUpdate();
             return;
         }
-        animate().cancel();
-        cardContainer.animate().cancel();
-        setAlpha(0f);
-        animate().alpha(1f).setDuration(240).setInterpolator(Ui.EMPHASIZED).start();
-        cardContainer.setAlpha(0f);
-        cardContainer.setTranslationY(Ui.dpf(52));
-        cardContainer.setScaleX(0.94f);
-        cardContainer.setScaleY(0.94f);
-        cardContainer.animate().alpha(1f).translationY(0f).scaleX(1f).scaleY(1f)
-                .setDuration(320).setInterpolator(Ui.EMPHASIZED).start();
+        if (wasOpen) {
+            // Smooth in-place content crossfade when navigating to a sub-sheet
+            scroll.setAlpha(0f);
+            scroll.animate().alpha(1f).setDuration(180).setInterpolator(Ui.EMPHASIZED).start();
+            morph.snap(1f);
+            onMorphUpdate();
+        } else {
+            morph.stiffness = 340f;
+            morph.dampingRatio = 0.94f;
+            morph.snap(0f);
+            post(() -> {
+                if (open && !closing) morph.to(1f);
+            });
+        }
+    }
+
+    @Override protected void onMeasure(int wSpec, int hSpec) {
+        super.onMeasure(wSpec, hSpec);
+        int W = getMeasuredWidth(), H = getMeasuredHeight();
+        if (W <= 0 || H <= 0) return;
+        boolean wide = (W / Ui.density) >= 600f;
+        int cardW = wide
+                ? Math.min(Ui.dp(376), W - Ui.dp(36))
+                : Math.min(W - Ui.dp(24), Ui.dp(410));
+        int maxH = Math.max(Ui.dp(180), H - Ui.statusInset - Ui.navInset - Ui.dp(wide ? 124 : 52));
+        scroll.measure(
+                MeasureSpec.makeMeasureSpec(cardW, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(maxH, MeasureSpec.AT_MOST));
+    }
+
+    @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
+        int W = getWidth(), H = getHeight();
+        if (W <= 0 || H <= 0) return;
+        int cw = scroll.getMeasuredWidth();
+        int ch = scroll.getMeasuredHeight();
+        boolean wide = (W / Ui.density) >= 600f;
+        int safeTop = Math.max(Ui.statusInset, Ui.dp(16)) + Ui.dp(8);
+        int safeBot = H - Math.max(Ui.navInset, Ui.dp(12)) - Ui.dp(14);
+
+        float left, top;
+        if (hasAnchor && wide) {
+            boolean alignRight = anchor.centerX() >= W * 0.5f;
+            left = alignRight ? Math.min(anchor.right, W - Ui.dpf(18)) - cw : Math.max(anchor.left, Ui.dpf(18));
+            left = Ui.clamp(left, Ui.dpf(14), W - Ui.dpf(14) - cw);
+            boolean below = anchor.centerY() < H * 0.45f;
+            top = below ? (anchor.bottom + Ui.dpf(8)) : (anchor.top - ch - Ui.dpf(8));
+            top = Ui.clamp(top, safeTop, Math.max(safeTop, safeBot - ch));
+        } else if (hasAnchor) {
+            boolean alignRight = anchor.centerX() >= W * 0.5f;
+            left = alignRight ? Math.min(anchor.right, W - Ui.dpf(12)) - cw : (W - cw) / 2f;
+            left = Ui.clamp(left, Ui.dpf(12), W - Ui.dpf(12) - cw);
+            boolean below = anchor.centerY() < H * 0.42f;
+            top = below ? (anchor.top) : (anchor.bottom - ch);
+            top = Ui.clamp(top, safeTop, Math.max(safeTop, safeBot - ch));
+        } else {
+            left = (W - cw) / 2f;
+            top = Math.max(safeTop, safeBot - ch);
+        }
+
+        target.set(left, top, left + cw, top + ch);
+        scroll.layout(Math.round(target.left), Math.round(target.top), Math.round(target.right), Math.round(target.bottom));
+        if (!hasAnchor) {
+            anchor.set(target.centerX() - Ui.dpf(26), target.bottom - Ui.dpf(52),
+                    target.centerX() + Ui.dpf(26), target.bottom);
+        }
+        onMorphUpdate();
+    }
+
+    /**
+     * Prism-grade Liquid Drop Morph:
+     * 1) Button circle gathers slightly and glides toward target popover center.
+     * 2) Glass drop smoothly swells into the full rounded menu card while radius blends circle -> 26dp.
+     * 3) Content fades & scales smoothly inside the clipped glass boundary; reverses identically on dismiss.
+     */
+    private void onMorphUpdate() {
+        float v = Ui.clamp(morph.value, 0f, 1.06f);
+        if (target.isEmpty()) return;
+
+        float gather = Ui.clamp(v / 0.38f, 0f, 1f);
+        gather = gather * gather * (3f - 2f * gather);
+        float swell = Ui.clamp((v - 0.18f) / 0.82f, 0f, 1.05f);
+        float blobSz = Math.max(anchor.height(), Ui.dpf(48)) * 1.12f;
+        float bw = Ui.lerp(anchor.width(), blobSz, gather);
+        float bh = Ui.lerp(anchor.height(), blobSz, gather);
+        float w = Ui.lerp(bw, target.width(), swell);
+        float h = Ui.lerp(bh, target.height(), swell);
+
+        float cx = Ui.lerp(anchor.centerX(), target.centerX(), Ui.clamp(v, 0f, 1.02f));
+        float cy = Ui.lerp(anchor.centerY(), target.centerY(), Ui.clamp(v, 0f, 1.02f));
+        float travel = (float) Math.sin(Math.PI * Ui.clamp(v, 0f, 1f)) * 0.045f;
+        w *= (1f + travel);
+        h *= (1f - travel * 0.35f);
+
+        cur.set(cx - w / 2f, cy - h / 2f, cx + w / 2f, cy + h / 2f);
+        blobRadius = Ui.lerp(Math.min(w, h) * 0.5f, Ui.dpf(26), Ui.clamp(swell, 0f, 1f));
+
+        float ca = Ui.clamp((v - 0.42f) / 0.52f, 0f, 1f);
+        scroll.setAlpha(ca);
+        float sc = Ui.lerp(0.92f, 1f, ca);
+        scroll.setPivotX(Ui.clamp(anchor.centerX() - target.left, 0f, target.width()));
+        scroll.setPivotY(Ui.clamp(anchor.centerY() - target.top, 0f, target.height()));
+        scroll.setScaleX(sc);
+        scroll.setScaleY(sc);
+        invalidate();
+    }
+
+    @Override protected void dispatchDraw(Canvas c) {
+        float v = Ui.clamp(morph.value, 0f, 1f);
+        // Subtle dim scrim behind popover
+        int scrimAlpha = Math.round(0x3A * v);
+        if (scrimAlpha > 0) c.drawColor(Color.argb(scrimAlpha, 0, 0, 0));
+
+        if (!cur.isEmpty() && cur.width() > 2f && cur.height() > 2f) {
+            float rad = Math.min(blobRadius, Math.min(cur.width(), cur.height()) / 2f);
+            glass.tint = Ui.mix(Ui.barTint(), Ui.sheetTint(), v);
+            glass.strokeColor = Ui.glassStroke();
+            glass.blurDp = Ui.lerp(8f, 16f, v);
+            glass.refractDp = Ui.lerp(15f, 14f, v);
+            glass.edgeDp = Ui.lerp(22f, 26f, v);
+            glass.chroma = Ui.lerp(0.32f, 0.22f, v);
+            glass.fresnelAmt = 0.58f;
+            glass.alpha = hasAnchor ? 1f : Ui.clamp(v * 2.5f, 0f, 1f);
+            glass.shapes(cur, rad, null, 0, null, 0);
+            glass.draw(c, this, backdrop);
+
+            // Fading '...' glyph riding inside the morphing glass bubble at start/end of animation
+            float glyphA = hasAnchor ? (1f - Ui.clamp(v / 0.36f, 0f, 1f)) : 0f;
+            if (glyphA > 0.02f) {
+                Icons.draw(c, anchorIcon, cur.centerX(), cur.centerY(), Ui.dpf(20), Ui.alpha(Ui.text(), glyphA));
+            }
+
+            clipPath.reset();
+            clipPath.addRoundRect(cur, rad, rad, Path.Direction.CW);
+            int sc = c.save();
+            c.clipPath(clipPath);
+            super.dispatchDraw(c);
+            c.restoreToCount(sc);
+        }
+    }
+
+    @Override public boolean onTouchEvent(MotionEvent e) {
+        if (e.getActionMasked() == MotionEvent.ACTION_DOWN && !target.contains(e.getX(), e.getY())) {
+            dismiss();
+            return true;
+        }
+        return true;
     }
 
     // ---- 1. iOS 26 Safari '...' Popover Menu ----
     void showMainMenu(MainActivity act) {
+        showMainMenu(act, null, Icons.MORE, null);
+    }
+
+    void showMainMenu(MainActivity act, RectF fromAnchor, int iconId, Runnable restoreSource) {
         content.removeAllViews();
         Context c = getContext();
         TabManager.Tab tab = act.tabs.activeTab();
         boolean onPage = tab != null && !tab.isStartPage();
+        String curDomain = onPage ? BrowserStore.domainOf(tab.url) : "";
+        boolean vpnOn = SecurityGuard.isVpnActive(c);
 
-        // Top 4 circular-pill quick actions (iOS 26 Safari popover top row)
+        // Top 4 circular-pill quick actions
         LinearLayout quick = new LinearLayout(c);
         quick.setOrientation(LinearLayout.HORIZONTAL);
         quick.addView(quickTile(c, Icons.TABS, "탭 (" + act.tabs.activeList().size() + ")", v -> { dismiss(); act.showTabOverview(true); }));
@@ -149,6 +308,36 @@ final class GlassSheet extends FrameLayout {
 
         LinearLayout grp = groupBox(c);
         if (onPage) {
+            // Google Translate built-in webpage translation
+            grp.addView(iosMenuRow(c,
+                    tab.translated ? "원문으로 보기" : "웹페이지 번역",
+                    Icons.TRANSLATE,
+                    tab.translated ? PageTranslator.labelFor(Ui.translateLang) : "Google",
+                    v -> {
+                        if (tab.translated) {
+                            dismiss();
+                            act.restoreCurrentPageOriginal();
+                        } else {
+                            showTranslateSheet(act);
+                        }
+                    }));
+            grp.addView(div(c));
+
+            // One-tap per-site NordVPN routing toggle for current domain
+            if (!curDomain.isEmpty()) {
+                boolean routed = BrowserStore.hasVpnDomain(curDomain);
+                grp.addView(toggleRow(c, curDomain + "에 " + SecurityGuard.vpnLabel(Ui.vpnProvider) + " 적용", routed, on -> {
+                    if (on) BrowserStore.addVpnDomain(c, curDomain);
+                    else BrowserStore.removeVpnDomain(c, curDomain);
+                    act.tabs.activeTab();
+                    act.safariBar.updateState(tab, act.tabs.canGoBack(), act.tabs.canGoForward(), act.tabs.activeList().size());
+                    if (on && !SecurityGuard.isVpnActive(c)) {
+                        showVpnGateSheet(act, tab, tab.url, curDomain);
+                    }
+                }));
+                grp.addView(div(c));
+            }
+
             boolean bm = BrowserStore.isBookmarked(tab.url);
             grp.addView(iosMenuRow(c, bm ? "즐겨찾기에서 제거" : "즐겨찾기에 추가", Icons.STAR, null, v -> {
                 BrowserStore.addOrToggleBookmark(c, tab.title, tab.url);
@@ -181,6 +370,9 @@ final class GlassSheet extends FrameLayout {
             grp.addView(div(c));
         }
 
+        String vpnBadge = SecurityGuard.vpnLabel(Ui.vpnProvider) + (vpnOn ? " · 연결됨" : "");
+        grp.addView(iosMenuRow(c, "보안 및 VPN", Icons.VPN, vpnBadge, v -> showSecurityVpnSheet(act)));
+        grp.addView(div(c));
         grp.addView(iosMenuRow(c, "확장 프로그램", Icons.PUZZLE,
                 ExtensionManager.installed.isEmpty() ? null : String.valueOf(ExtensionManager.installed.size()),
                 v -> showExtensionsSheet(act)));
@@ -189,10 +381,273 @@ final class GlassSheet extends FrameLayout {
         grp.addView(div(c));
         grp.addView(iosMenuRow(c, "설정", Icons.SETTINGS, null, v -> showSettingsSheet(act)));
         content.addView(grp);
-        showBuilt();
+        showBuilt(fromAnchor, iconId, restoreSource);
     }
 
-    // ---- 2. Chrome Extensions Sheet ----
+    // ---- 2. Google Translate Sheet ----
+    void showTranslateSheet(MainActivity act) {
+        content.removeAllViews();
+        Context c = getContext();
+        content.addView(sheetHeader(c, "웹페이지 번역", "Google 번역"));
+
+        LinearLayout grp = groupBox(c);
+        for (int i = 0; i < PageTranslator.LANG_CODES.length; i++) {
+            final String code = PageTranslator.LANG_CODES[i];
+            final String label = PageTranslator.LANG_LABELS[i];
+            boolean sel = code.equals(Ui.translateLang);
+            grp.addView(iosMenuRow(c, label, sel ? Icons.CHECK : Icons.TRANSLATE, sel ? "선택됨" : null, v -> {
+                Ui.translateLang = code;
+                Ui.savePrefs(c);
+                dismiss();
+                act.translateCurrentPage(code);
+            }));
+            if (i + 1 < PageTranslator.LANG_CODES.length) grp.addView(div(c));
+        }
+        content.addView(grp);
+
+        TabManager.Tab tab = act.tabs.activeTab();
+        if (tab != null && tab.translated) {
+            content.addView(spacer(c, 10));
+            LinearLayout resetGrp = groupBox(c);
+            resetGrp.addView(iosMenuRow(c, "원문으로 되돌리기", Icons.RELOAD, null, v -> {
+                dismiss();
+                act.restoreCurrentPageOriginal();
+            }));
+            content.addView(resetGrp);
+        }
+        showBuilt(null, Icons.TRANSLATE, null);
+    }
+
+    // ---- 3. Security Shield & Per-Site VPN (NordVPN default) Sheet ----
+    void showSecurityVpnSheet(MainActivity act) {
+        content.removeAllViews();
+        Context c = getContext();
+        boolean vpnOn = SecurityGuard.isVpnActive(c);
+        String vpnName = SecurityGuard.vpnLabel(Ui.vpnProvider);
+        content.addView(sheetHeader(c, "보안 및 VPN", vpnOn ? vpnName + " 터널 연결됨" : "실시간 보안 보호 활성"));
+
+        // Live Security & VPN status pill
+        LinearLayout statusBox = groupBox(c);
+        statusBox.setPadding(Ui.dp(14), Ui.dp(12), Ui.dp(14), Ui.dp(12));
+        LinearLayout row = new LinearLayout(c);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        View ic = new View(c) {
+            @Override protected void onDraw(Canvas canvas) {
+                Icons.draw(canvas, Icons.VPN, getWidth() / 2f, getHeight() / 2f, Ui.dpf(20), vpnOn ? 0xFF34C759 : Ui.activeAccent());
+            }
+        };
+        row.addView(ic, new LinearLayout.LayoutParams(Ui.dp(24), Ui.dp(24)));
+        LinearLayout stCol = new LinearLayout(c);
+        stCol.setOrientation(LinearLayout.VERTICAL);
+        stCol.setPadding(Ui.dp(10), 0, Ui.dp(8), 0);
+        stCol.addView(Ui.text(c, vpnOn ? vpnName + " 보호 중" : vpnName + " 대기 중", 14.5f, Ui.semibold, Ui.text()));
+        stCol.addView(Ui.text(c, "차단된 추적기 " + BrowserStore.blockedTrackers + "개 · VPN 지정 사이트 " + BrowserStore.vpnDomains.size() + "개",
+                12f, Ui.regular, Ui.text2()));
+        row.addView(stCol, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView openVpn = Ui.text(c, vpnOn ? "설정" : "연결", 13f, Ui.semibold, 0xFFFFFFFF);
+        openVpn.setPadding(Ui.dp(12), Ui.dp(6), Ui.dp(12), Ui.dp(6));
+        openVpn.setBackground(Ui.round(vpnOn ? 0xFF34C759 : Ui.activeAccent(), 100));
+        openVpn.setOnClickListener(v -> SecurityGuard.launchVpnApp(c));
+        row.addView(openVpn);
+        statusBox.addView(row);
+        content.addView(statusBox);
+        content.addView(spacer(c, 10));
+
+        // Security toggles & VPN provider picker
+        LinearLayout secGrp = groupBox(c);
+        secGrp.addView(iosMenuRow(c, "기본 VPN 앱", Icons.VPN, vpnName, v -> {
+            Ui.vpnProvider = SecurityGuard.nextVpnProvider(Ui.vpnProvider);
+            Ui.savePrefs(c);
+            showSecurityVpnSheet(act);
+        }));
+        secGrp.addView(div(c));
+        secGrp.addView(toggleRow(c, "피싱·악성코드 및 지문 차단", Ui.securityShield, on -> {
+            Ui.securityShield = on;
+            Ui.savePrefs(c);
+        }));
+        secGrp.addView(div(c));
+        secGrp.addView(toggleRow(c, "HTTPS 우선 자동 전환", Ui.httpsOnly, on -> {
+            Ui.httpsOnly = on;
+            Ui.savePrefs(c);
+        }));
+        secGrp.addView(div(c));
+        secGrp.addView(toggleRow(c, "추적기 및 광고 차단", Ui.adBlock, on -> {
+            Ui.adBlock = on;
+            Ui.savePrefs(c);
+        }));
+        content.addView(secGrp);
+        content.addView(spacer(c, 10));
+
+        // Per-site VPN routing list
+        TextView secTitle = Ui.text(c, "VPN 지정 사이트 (" + vpnName + ")", 13f, Ui.semibold, Ui.text2());
+        secTitle.setPadding(Ui.dp(6), Ui.dp(2), Ui.dp(6), Ui.dp(6));
+        content.addView(secTitle);
+
+        LinearLayout domGrp = groupBox(c);
+        List<String> doms = new ArrayList<>(BrowserStore.vpnDomains);
+        Collections.sort(doms);
+        if (doms.isEmpty()) {
+            domGrp.addView(emptyRow(c, "지정된 사이트가 없습니다.\n추가한 사이트 방문 시 " + vpnName + " 연결을 자동으로 확인합니다."));
+        } else {
+            for (int i = 0; i < doms.size(); i++) {
+                final String d = doms.get(i);
+                domGrp.addView(iosMenuRow(c, d, Icons.CLOSE, "해제", v -> {
+                    BrowserStore.removeVpnDomain(c, d);
+                    showSecurityVpnSheet(act);
+                }));
+                if (i + 1 < doms.size()) domGrp.addView(div(c));
+            }
+        }
+        domGrp.addView(div(c));
+        TabManager.Tab cur = act.tabs.activeTab();
+        if (cur != null && !cur.isStartPage()) {
+            String curDom = BrowserStore.domainOf(cur.url);
+            if (!curDom.isEmpty() && !BrowserStore.hasVpnDomain(curDom)) {
+                domGrp.addView(iosMenuRow(c, "현재 사이트 추가 (" + curDom + ")", Icons.PLUS, null, v -> {
+                    BrowserStore.addVpnDomain(c, curDom);
+                    showSecurityVpnSheet(act);
+                }));
+                domGrp.addView(div(c));
+            }
+        }
+        domGrp.addView(iosMenuRow(c, "도메인 직접 추가", Icons.PLUS, null, v ->
+                showTextInputSheet("VPN 적용 사이트 추가", "예: x.com, reddit.com", "추가", val -> {
+                    BrowserStore.addVpnDomain(c, val);
+                    showSecurityVpnSheet(act);
+                })));
+        content.addView(domGrp);
+        showBuilt(null, Icons.VPN, null);
+    }
+
+    // ---- 4. Per-Site VPN Required Interstitial ----
+    void showVpnGateSheet(MainActivity act, TabManager.Tab tab, String url, String domain) {
+        content.removeAllViews();
+        Context c = getContext();
+        String vpnName = SecurityGuard.vpnLabel(Ui.vpnProvider);
+        content.addView(sheetHeader(c, vpnName + " 연결 필요", domain));
+
+        LinearLayout card = groupBox(c);
+        card.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(14));
+        card.addView(Ui.text(c, domain + "은(는) " + vpnName + " 전용 사이트로 지정되어 있습니다.\n"
+                + vpnName + "을 연결하면 자동으로 페이지가 열립니다.", 14f, Ui.regular, Ui.text()));
+        content.addView(card);
+        content.addView(spacer(c, 10));
+
+        LinearLayout acts = groupBox(c);
+        acts.addView(iosMenuRow(c, vpnName + " 열고 연결 대기", Icons.VPN, "자동 열기", v -> {
+            SecurityGuard.waitForVpnConnection(c, () -> {
+                Toast.makeText(c, vpnName + " 연결 확인됨 — 페이지 여는 중", Toast.LENGTH_SHORT).show();
+                dismiss();
+                act.tabs.loadUrl(tab, url);
+            });
+            SecurityGuard.launchVpnApp(c);
+        }));
+        acts.addView(div(c));
+        acts.addView(iosMenuRow(c, "이번만 VPN 없이 열기", Icons.FORWARD, null, v -> {
+            SecurityGuard.allowVpnBypassOnce(domain);
+            dismiss();
+            act.tabs.loadUrl(tab, url);
+        }));
+        content.addView(acts);
+        showBuilt(null, Icons.VPN, null);
+    }
+
+    // ---- 5. Security Phishing/Malware Warning Gate ----
+    void showDangerGateSheet(MainActivity act, TabManager.Tab tab, String url, String reason) {
+        content.removeAllViews();
+        Context c = getContext();
+        String host = BrowserStore.domainOf(url);
+        content.addView(sheetHeader(c, "보안 위험 감지됨", host));
+
+        LinearLayout card = groupBox(c);
+        card.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(14));
+        card.addView(Ui.text(c, reason, 14.5f, Ui.semibold, 0xFFFF453A));
+        TextView uTxt = Ui.text(c, url, 12f, Ui.regular, Ui.text2());
+        uTxt.setPadding(0, Ui.dp(6), 0, 0);
+        uTxt.setMaxLines(2);
+        uTxt.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+        card.addView(uTxt);
+        content.addView(card);
+        content.addView(spacer(c, 10));
+
+        LinearLayout acts = groupBox(c);
+        acts.addView(iosMenuRow(c, "안전한 페이지로 돌아가기", Icons.SHIELD, "권장", v -> dismiss()));
+        acts.addView(div(c));
+        acts.addView(iosMenuRow(c, "위험을 감수하고 이동", Icons.FORWARD, null, v -> {
+            SecurityGuard.allowDangerousOnce(host);
+            dismiss();
+            act.tabs.loadUrl(tab, url);
+        }));
+        content.addView(acts);
+        showBuilt(null, Icons.SHIELD, null);
+    }
+
+    // ---- 6. Reusable Glass Confirmation & Text Input Sheets (Zero stock AlertDialogs) ----
+    void showConfirmSheet(String title, String message, String confirmLabel, boolean destructive, Runnable onConfirm) {
+        content.removeAllViews();
+        Context c = getContext();
+        content.addView(sheetHeader(c, title, null));
+
+        LinearLayout card = groupBox(c);
+        card.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(14));
+        card.addView(Ui.text(c, message, 14f, Ui.regular, Ui.text()));
+        content.addView(card);
+        content.addView(spacer(c, 10));
+
+        LinearLayout acts = groupBox(c);
+        TextView ok = Ui.text(c, confirmLabel, 15f, Ui.semibold, destructive ? 0xFFFF453A : Ui.activeAccent());
+        ok.setGravity(Gravity.CENTER);
+        ok.setPadding(0, Ui.dp(13), 0, Ui.dp(13));
+        ok.setOnClickListener(v -> {
+            dismiss();
+            if (onConfirm != null) onConfirm.run();
+        });
+        acts.addView(ok);
+        acts.addView(div(c));
+        TextView cancel = Ui.text(c, "취소", 15f, Ui.regular, Ui.text2());
+        cancel.setGravity(Gravity.CENTER);
+        cancel.setPadding(0, Ui.dp(13), 0, Ui.dp(13));
+        cancel.setOnClickListener(v -> dismiss());
+        acts.addView(cancel);
+        content.addView(acts);
+        showBuilt(null, Icons.SHIELD, null);
+    }
+
+    void showTextInputSheet(String title, String hint, String submitLabel, java.util.function.Consumer<String> onSubmit) {
+        content.removeAllViews();
+        Context c = getContext();
+        content.addView(sheetHeader(c, title, null));
+
+        LinearLayout box = groupBox(c);
+        box.setPadding(Ui.dp(14), Ui.dp(10), Ui.dp(14), Ui.dp(10));
+        EditText et = new EditText(c);
+        et.setHint(hint);
+        et.setSingleLine(true);
+        et.setTextColor(Ui.text());
+        et.setHintTextColor(Ui.text2());
+        et.setBackground(null);
+        et.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        box.addView(et, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        content.addView(box);
+        content.addView(spacer(c, 10));
+
+        LinearLayout acts = groupBox(c);
+        TextView ok = Ui.text(c, submitLabel, 15f, Ui.semibold, Ui.activeAccent());
+        ok.setGravity(Gravity.CENTER);
+        ok.setPadding(0, Ui.dp(13), 0, Ui.dp(13));
+        ok.setOnClickListener(v -> {
+            String val = et.getText().toString().trim();
+            if (!val.isEmpty() && onSubmit != null) onSubmit.accept(val);
+            else dismiss();
+        });
+        acts.addView(ok);
+        content.addView(acts);
+        showBuilt(null, Icons.PLUS, null);
+        et.requestFocus();
+    }
+
+    // ---- 7. Chrome Extensions Sheet ----
     void showExtensionsSheet(MainActivity act) {
         content.removeAllViews();
         Context c = getContext();
@@ -240,14 +695,10 @@ final class GlassSheet extends FrameLayout {
 
                 row.addView(new Icons.GlassToggle(c, ext.enabled, on -> ExtensionManager.setEnabled(c, ext.id, on)));
                 row.setOnLongClickListener(v -> {
-                    new AlertDialog.Builder(c)
-                            .setTitle(ext.name)
-                            .setMessage("이 확장 프로그램을 제거할까요?")
-                            .setPositiveButton("제거", (d, w) -> {
-                                ExtensionManager.remove(c, ext.id);
-                                showExtensionsSheet(act);
-                            })
-                            .setNegativeButton("취소", null).show();
+                    showConfirmSheet(ext.name, "이 확장 프로그램을 제거할까요?", "제거", true, () -> {
+                        ExtensionManager.remove(c, ext.id);
+                        showExtensionsSheet(act);
+                    });
                     return true;
                 });
                 grp.addView(row);
@@ -263,28 +714,13 @@ final class GlassSheet extends FrameLayout {
             act.tabs.loadUrl(act.tabs.activeTab(), "https://chromewebstore.google.com");
         }));
         actions.addView(div(c));
-        actions.addView(iosMenuRow(c, "확장 ID 또는 URL로 설치", Icons.PLUS, null, v -> promptInstallExtension(act)));
+        actions.addView(iosMenuRow(c, "확장 ID 또는 URL로 설치", Icons.PLUS, null, v ->
+                showTextInputSheet("확장 프로그램 설치", "Chrome 웹 스토어 URL 또는 32자 ID", "설치", val -> {
+                    dismiss();
+                    act.installStoreExtension(val);
+                })));
         content.addView(actions);
-        showBuilt();
-    }
-
-    private void promptInstallExtension(MainActivity act) {
-        Context c = getContext();
-        EditText et = new EditText(c);
-        et.setHint("Chrome 웹 스토어 URL 또는 32자 ID");
-        et.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
-        new AlertDialog.Builder(c)
-                .setTitle("확장 프로그램 설치")
-                .setView(et)
-                .setPositiveButton("설치", (d, w) -> {
-                    String val = et.getText().toString().trim();
-                    if (!val.isEmpty()) {
-                        dismiss();
-                        act.installStoreExtension(val);
-                    }
-                })
-                .setNegativeButton("취소", null)
-                .show();
+        showBuilt(null, Icons.PUZZLE, null);
     }
 
     private void showExtensionPopup(ExtensionManager.Ext ext) {
@@ -302,10 +738,10 @@ final class GlassSheet extends FrameLayout {
         String injected = "<script>" + ExtensionManager.buildWebExtPolyfill(ext) + "</script>" + html;
         pop.loadDataWithBaseURL("file://" + ext.dir.getAbsolutePath() + "/", injected, "text/html", "UTF-8", null);
         content.addView(pop, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(340)));
-        showBuilt();
+        showBuilt(null, Icons.PUZZLE, null);
     }
 
-    // ---- 3. Bookmarks / Reading List / History Sheet ----
+    // ---- 8. Bookmarks / Reading List / History Sheet ----
     void showLibrarySheet(MainActivity act, int section) {
         content.removeAllViews();
         Context c = getContext();
@@ -364,15 +800,15 @@ final class GlassSheet extends FrameLayout {
                 });
                 clrGrp.addView(clr);
                 content.addView(clrGrp);
-                showBuilt();
+                showBuilt(null, Icons.BOOKMARK, null);
                 return;
             }
         }
         content.addView(grp);
-        showBuilt();
+        showBuilt(null, Icons.BOOKMARK, null);
     }
 
-    // ---- 4. Cloud Account Sync Sheet ----
+    // ---- 9. Cloud Account Sync Sheet ----
     void showSyncSheet(MainActivity act) {
         content.removeAllViews();
         Context c = getContext();
@@ -396,10 +832,10 @@ final class GlassSheet extends FrameLayout {
             act.openSyncDocument();
         }));
         content.addView(grp);
-        showBuilt();
+        showBuilt(null, Icons.CLOUD, null);
     }
 
-    // ---- 5. Settings Sheet ----
+    // ---- 10. Settings Sheet ----
     void showSettingsSheet(MainActivity act) {
         content.removeAllViews();
         Context c = getContext();
@@ -418,6 +854,10 @@ final class GlassSheet extends FrameLayout {
             Ui.savePrefs(c);
             showSettingsSheet(act);
         }));
+        grp.addView(div(c));
+        grp.addView(iosMenuRow(c, "번역 언어 (Google)", Icons.TRANSLATE, PageTranslator.labelFor(Ui.translateLang), v -> showTranslateSheet(act)));
+        grp.addView(div(c));
+        grp.addView(iosMenuRow(c, "보안 및 VPN", Icons.VPN, SecurityGuard.vpnLabel(Ui.vpnProvider), v -> showSecurityVpnSheet(act)));
         grp.addView(div(c));
         grp.addView(toggleRow(c, "리퀴드 글래스", Ui.liquidGlass, on -> {
             Ui.liquidGlass = on;
@@ -440,7 +880,7 @@ final class GlassSheet extends FrameLayout {
             Updater.check(act, true);
         }));
         content.addView(grp);
-        showBuilt();
+        showBuilt(null, Icons.SETTINGS, null);
     }
 
     // ---- iOS 26 Menu Components ----
@@ -474,10 +914,12 @@ final class GlassSheet extends FrameLayout {
         };
         box.addView(ic, new LinearLayout.LayoutParams(Ui.dp(22), Ui.dp(22)));
         TextView tv = Ui.text(c, label, 11.5f, Ui.medium, Ui.text());
+        tv.setGravity(Gravity.CENTER);
         tv.setMaxLines(1);
         tv.setPadding(0, Ui.dp(5), 0, 0);
-        box.addView(tv);
+        box.addView(tv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         box.setOnClickListener(click);
+        Ui.press(box, 0.94f);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         lp.setMargins(Ui.dp(3), 0, Ui.dp(3), 0);
         box.setLayoutParams(lp);
@@ -491,17 +933,18 @@ final class GlassSheet extends FrameLayout {
         return ll;
     }
 
-    /** Authentic iOS 26 UIMenu row: title on left, subtle value + monochrome SF icon on RIGHT. */
     private View iosMenuRow(Context c, String label, int iconId, String detail, OnClickListener click) {
         LinearLayout row = new LinearLayout(c);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(Ui.dp(16), Ui.dp(13), Ui.dp(16), Ui.dp(13));
-        row.addView(Ui.text(c, label, 15f, Ui.regular, Ui.text()),
-                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView lbl = Ui.text(c, label, 15f, Ui.regular, Ui.text());
+        lbl.setMaxLines(1);
+        lbl.setEllipsize(TextUtils.TruncateAt.END);
+        row.addView(lbl, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         if (detail != null && !detail.isEmpty()) {
-            TextView dt = Ui.text(c, detail, 13.5f, Ui.regular, Ui.text2());
-            dt.setPadding(0, 0, Ui.dp(10), 0);
+            TextView dt = Ui.text(c, detail, 13f, Ui.regular, Ui.text2());
+            dt.setPadding(Ui.dp(6), 0, Ui.dp(10), 0);
             row.addView(dt);
         }
         View ic = new View(c) {
@@ -519,8 +962,10 @@ final class GlassSheet extends FrameLayout {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(Ui.dp(16), Ui.dp(10), Ui.dp(14), Ui.dp(10));
-        row.addView(Ui.text(c, label, 15f, Ui.regular, Ui.text()),
-                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView lbl = Ui.text(c, label, 14.5f, Ui.regular, Ui.text());
+        lbl.setMaxLines(1);
+        lbl.setEllipsize(TextUtils.TruncateAt.END);
+        row.addView(lbl, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         row.addView(new Icons.GlassToggle(c, checked, onToggle::accept));
         return row;
     }
@@ -540,9 +985,9 @@ final class GlassSheet extends FrameLayout {
     }
 
     private View emptyRow(Context c, String msg) {
-        TextView tv = Ui.text(c, msg, 14f, Ui.regular, Ui.text2());
+        TextView tv = Ui.text(c, msg, 13.5f, Ui.regular, Ui.text2());
         tv.setGravity(Gravity.CENTER);
-        tv.setPadding(Ui.dp(16), Ui.dp(22), Ui.dp(16), Ui.dp(22));
+        tv.setPadding(Ui.dp(16), Ui.dp(20), Ui.dp(16), Ui.dp(20));
         return tv;
     }
 

@@ -32,10 +32,15 @@ final class Ui {
     static int layoutMode = 0;      // 0 = Compact (iOS 26 default), 1 = Bottom Classic, 2 = Top
     static int searchEngine = 0;    // 0 = Google, 1 = Naver, 2 = DuckDuckGo, 3 = Bing
     static boolean adBlock = true;
+    static boolean securityShield = true;
+    static boolean httpsOnly = true;
+    static String vpnProvider = "nordvpn";
+    static String translateLang = "ko";
     static boolean liquidGlass = true; // true = Tri-Engine Liquid Glass, false = Frost Blur
     static float glassTransparency = 0.52f;
     static boolean desktopDefault = false;
     static int accent = 0xFF0A84FF; // iOS 26 Safari vibrant sapphire-cyan accent
+    static int screenW = 1080, screenH = 2400;
 
     static Typeface regular = Typeface.create("sans-serif", Typeface.NORMAL);
     static Typeface medium = Typeface.create("sans-serif-medium", Typeface.NORMAL);
@@ -53,6 +58,8 @@ final class Ui {
         DisplayMetrics dm = c.getResources().getDisplayMetrics();
         density = dm.density > 0 ? dm.density : 3f;
         scaledDensity = dm.scaledDensity > 0 ? dm.scaledDensity : density;
+        screenW = dm.widthPixels > 0 ? dm.widthPixels : 1080;
+        screenH = dm.heightPixels > 0 ? dm.heightPixels : 2400;
         int nm = c.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
         dark = nm == Configuration.UI_MODE_NIGHT_YES;
 
@@ -60,17 +67,28 @@ final class Ui {
         layoutMode = p.getInt("layout_mode", 0);
         searchEngine = p.getInt("search_engine", 0);
         adBlock = p.getBoolean("ad_block", true);
+        securityShield = p.getBoolean("security_shield", true);
+        httpsOnly = p.getBoolean("https_only", true);
+        vpnProvider = p.getString("vpn_provider", "nordvpn");
+        translateLang = p.getString("translate_lang", "ko");
         liquidGlass = p.getBoolean("liquid_glass", true);
         glassTransparency = p.getFloat("glass_t", 0.52f);
         desktopDefault = p.getBoolean("desktop_default", false);
         accent = p.getInt("accent", 0xFF0A84FF);
     }
 
+    static boolean isWide() { return (screenW / density) >= 600f; }
+    static boolean isTablet() { return (screenW / density) >= 840f; }
+
     static void savePrefs(Context c) {
         prefs(c).edit()
                 .putInt("layout_mode", layoutMode)
                 .putInt("search_engine", searchEngine)
                 .putBoolean("ad_block", adBlock)
+                .putBoolean("security_shield", securityShield)
+                .putBoolean("https_only", httpsOnly)
+                .putString("vpn_provider", vpnProvider)
+                .putString("translate_lang", translateLang)
                 .putBoolean("liquid_glass", liquidGlass)
                 .putFloat("glass_t", glassTransparency)
                 .putBoolean("desktop_default", desktopDefault)
@@ -192,11 +210,13 @@ final class Ui {
 
     /** Damped harmonic spring (Choreographer-driven) for iOS 26 Safari fluid pill & lens motion. */
     static final class Spring implements Choreographer.FrameCallback {
-        final float stiffness, dampingRatio, threshold;
+        float stiffness, dampingRatio;
+        final float threshold;
         float value, target, velocity;
         boolean running;
         long lastNanos;
         Runnable onUpdate;
+        Runnable onEnd;
 
         Spring(float stiffness, float dampingRatio, float threshold) {
             this.stiffness = stiffness;
@@ -217,12 +237,20 @@ final class Ui {
                 value = target;
                 velocity = 0f;
                 if (onUpdate != null) onUpdate.run();
+                if (onEnd != null) onEnd.run();
                 return;
             }
             if (!running) {
                 running = true;
                 lastNanos = System.nanoTime();
-                try { Choreographer.getInstance().postFrameCallback(this); } catch (Throwable ignored) { value = target; running = false; }
+                try {
+                    Choreographer.getInstance().postFrameCallback(this);
+                } catch (Throwable ignored) {
+                    value = target;
+                    running = false;
+                    if (onUpdate != null) onUpdate.run();
+                    if (onEnd != null) onEnd.run();
+                }
             }
         }
 
@@ -241,14 +269,17 @@ final class Ui {
             float force = -stiffness * (value - target) - c * velocity;
             velocity += force * dt;
             value += velocity * dt;
+            boolean done = false;
             if (Math.abs(target - value) < threshold && Math.abs(velocity) < threshold * 20f) {
                 value = target;
                 velocity = 0f;
                 running = false;
+                done = true;
             } else {
                 Choreographer.getInstance().postFrameCallback(this);
             }
             if (onUpdate != null) onUpdate.run();
+            if (done && onEnd != null) onEnd.run();
         }
     }
 

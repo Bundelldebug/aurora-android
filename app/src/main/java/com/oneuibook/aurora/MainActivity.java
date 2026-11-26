@@ -1,15 +1,17 @@
 package com.oneuibook.aurora;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.graphics.Color;
+import android.graphics.RectF;
 import android.net.Uri;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
+import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -28,11 +30,14 @@ import android.widget.Toast;
 import java.util.Locale;
 
 /**
- * Aurora Browser (v9.5.0) — Chromium-engine mobile web browser replicating iOS 26/27 Safari
- * Liquid Glass UI & gestures, Chrome Web Store CRX3 extensions, PWA installation, and Cloud Sync.
+ * Aurora Browser (v9.5.4) — Chromium-engine mobile/foldable/tablet browser:
+ * - iOS 26 / iPadOS 26 Safari Liquid Glass UI, button-to-popover morph, live tablet tab strip
+ * - Built-in Security Shield + per-site VPN routing (NordVPN default)
+ * - Google Translate in-place webpage translation + floating glass translation bar
+ * - Chrome Web Store CRX3 extensions, PWA installation, and Cloud Sync
  */
 public final class MainActivity extends Activity implements TabManager.Listener, SafariBar.Listener {
-    static final String VERSION = "9.5.3";
+    static final String VERSION = "9.5.4";
     private static final int REQ_FILE_CHOOSER = 7001, REQ_SYNC_CREATE = 7002, REQ_SYNC_OPEN = 7003;
 
     FrameLayout root;
@@ -49,10 +54,13 @@ public final class MainActivity extends Activity implements TabManager.Listener,
     private LinearLayout suggestionList;
     private LinearLayout findBar;
     private EditText findInput;
+    private LinearLayout translateBanner;
+    private TextView translateBannerText;
     private FrameLayout fullscreenHost;
     private WebChromeClient.CustomViewCallback fullscreenCb;
     private ValueCallback<Uri[]> fileChooserCb;
     private int scrollAccum;
+    private boolean lastWasStartPage = true;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -76,46 +84,42 @@ public final class MainActivity extends Activity implements TabManager.Listener,
         wlp.topMargin = Ui.statusInset;
         backdrop.addView(webHost, wlp);
 
-        // Adaptive top status-bar shield so web pages never collide with system status bar / notch
         statusBarBg = new View(this);
         statusBarBg.setBackgroundColor(Ui.bg());
         root.addView(statusBarBg, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Math.max(0, Ui.statusInset), Gravity.TOP));
 
         startPage = new StartPageView(this, new StartPageView.Listener() {
             @Override public void onOpenUrl(String url) { tabs.loadUrl(tabs.activeTab(), url); }
+            @Override public void onOpenSecurityVpn() { sheet.showSecurityVpnSheet(MainActivity.this); }
             @Override public void onOpenExtensions() { sheet.showExtensionsSheet(MainActivity.this); }
             @Override public void onOpenSync() { sheet.showSyncSheet(MainActivity.this); }
             @Override public void onOpenSettings() { sheet.showSettingsSheet(MainActivity.this); }
             @Override public void onRemoveBookmark(BrowserStore.Bookmark bm) {
-                new AlertDialog.Builder(MainActivity.this)
-                        .setTitle(bm.title)
-                        .setMessage("즐겨찾기에서 삭제할까요?")
-                        .setPositiveButton("삭제", (d, which) -> {
-                            BrowserStore.bookmarks.remove(bm);
-                            BrowserStore.save(MainActivity.this);
-                            startPage.rebuild();
-                        })
-                        .setNegativeButton("취소", null).show();
+                sheet.showConfirmSheet(bm.title, "즐겨찾기에서 삭제할까요?", "삭제", true, () -> {
+                    BrowserStore.bookmarks.remove(bm);
+                    BrowserStore.save(MainActivity.this);
+                    startPage.rebuild();
+                });
             }
         });
         backdrop.addView(startPage, match());
 
-        // Address Suggestions glass overlay (appears when editing URL)
         buildSuggestionOverlay();
         root.addView(suggestionOverlay, match());
 
-        // Find-in-Page floating glass bar
         buildFindBar();
         FrameLayout.LayoutParams flp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP);
         flp.leftMargin = Ui.dp(14); flp.rightMargin = Ui.dp(14);
         root.addView(findBar, flp);
 
-        // iOS 26 Safari Liquid Glass Floating Bar
+        buildTranslateBanner();
+        FrameLayout.LayoutParams tlp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        root.addView(translateBanner, tlp);
+
         safariBar = new SafariBar(this, backdrop);
         safariBar.setListener(this);
         root.addView(safariBar, match());
 
-        // Spatial Tab Overview
         tabs = new TabManager(this, webHost, this);
         tabOverview = new TabOverviewView(this, backdrop, tabs, new TabOverviewView.Listener() {
             @Override public void onSelectTab(boolean priv, int index) {
@@ -144,11 +148,9 @@ public final class MainActivity extends Activity implements TabManager.Listener,
         });
         root.addView(tabOverview, match());
 
-        // Floating Liquid Glass Modal Sheets
         sheet = new GlassSheet(this, backdrop);
         root.addView(sheet, match());
 
-        // Fullscreen HTML5 Video Container
         fullscreenHost = new FrameLayout(this);
         fullscreenHost.setBackgroundColor(Color.BLACK);
         fullscreenHost.setVisibility(View.GONE);
@@ -159,13 +161,7 @@ public final class MainActivity extends Activity implements TabManager.Listener,
             Ui.navInset = ins.getInsets(WindowInsets.Type.navigationBars()).bottom;
             int ime = ins.getInsets(WindowInsets.Type.ime()).bottom;
             safariBar.setImeOffset(Math.max(0, ime - Ui.navInset));
-            ((FrameLayout.LayoutParams) webHost.getLayoutParams()).topMargin = Ui.statusInset;
-            webHost.requestLayout();
-            if (statusBarBg != null) {
-                statusBarBg.getLayoutParams().height = Ui.statusInset;
-                statusBarBg.requestLayout();
-            }
-            ((FrameLayout.LayoutParams) findBar.getLayoutParams()).topMargin = Ui.statusInset + Ui.dp(10);
+            applyTopClearance();
             if (tabOverview != null) tabOverview.applyInsets();
             refreshStartPage();
             return ins;
@@ -177,6 +173,27 @@ public final class MainActivity extends Activity implements TabManager.Listener,
         tabs.restoreSession();
         handleIncomingIntent(getIntent());
         Updater.check(this, false);
+    }
+
+    @Override public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        Ui.screenW = dm.widthPixels > 0 ? dm.widthPixels : Ui.screenW;
+        Ui.screenH = dm.heightPixels > 0 ? dm.heightPixels : Ui.screenH;
+        Ui.dark = (newConfig.uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        applyUiSettings();
+    }
+
+    private void applyTopClearance() {
+        int topInset = safariBar != null ? safariBar.topContentInsetPx() : Ui.statusInset;
+        ((FrameLayout.LayoutParams) webHost.getLayoutParams()).topMargin = topInset;
+        webHost.requestLayout();
+        if (statusBarBg != null) {
+            statusBarBg.getLayoutParams().height = topInset;
+            statusBarBg.requestLayout();
+        }
+        ((FrameLayout.LayoutParams) findBar.getLayoutParams()).topMargin = topInset + Ui.dp(8);
+        ((FrameLayout.LayoutParams) translateBanner.getLayoutParams()).topMargin = topInset + Ui.dp(10);
     }
 
     @Override protected void onNewIntent(Intent intent) {
@@ -197,9 +214,14 @@ public final class MainActivity extends Activity implements TabManager.Listener,
 
     void applyUiSettings() {
         applySystemBars();
+        applyTopClearance();
         backdrop.setBackgroundColor(Ui.bg());
         if (statusBarBg != null) statusBarBg.setBackgroundColor(Ui.bg());
         startPage.rebuild();
+        if (tabs != null) {
+            safariBar.updateTabList(tabs.activeList(), tabs.activeIndex());
+            safariBar.updateState(tabs.activeTab(), tabs.canGoBack(), tabs.canGoForward(), tabs.activeList().size());
+        }
         safariBar.requestLayout();
         safariBar.invalidate();
         if (tabOverview.getVisibility() == View.VISIBLE) tabOverview.refresh();
@@ -216,15 +238,23 @@ public final class MainActivity extends Activity implements TabManager.Listener,
     void refreshStartPage() {
         TabManager.Tab t = tabs != null ? tabs.activeTab() : null;
         boolean showStart = (t == null || t.isStartPage());
-        // Bypass offscreen RenderNode capture while Chromium WebView is visible -> 0% flickering!
         backdrop.bypassCapture = !showStart;
         if (statusBarBg != null) {
             statusBarBg.setVisibility(showStart ? View.GONE : View.VISIBLE);
             statusBarBg.setBackgroundColor(Ui.bg());
         }
+        boolean switched = (showStart != lastWasStartPage);
+        lastWasStartPage = showStart;
+
         startPage.setVisibility(showStart ? View.VISIBLE : View.GONE);
         webHost.setVisibility(showStart ? View.GONE : View.VISIBLE);
-        if (showStart) startPage.rebuild();
+        if (showStart) {
+            startPage.rebuild();
+            hideTranslateBanner();
+        } else if (switched && !"robolectric".equals(android.os.Build.FINGERPRINT)) {
+            webHost.setAlpha(0f);
+            webHost.animate().alpha(1f).setDuration(200).setInterpolator(Ui.EMPHASIZED).start();
+        }
         safariBar.invalidate();
     }
 
@@ -242,12 +272,12 @@ public final class MainActivity extends Activity implements TabManager.Listener,
                 safariBar.setVisibility(View.GONE);
             } else {
                 tabOverview.setAlpha(0f);
-                tabOverview.setScaleX(1.06f);
-                tabOverview.setScaleY(1.06f);
+                tabOverview.setScaleX(1.05f);
+                tabOverview.setScaleY(1.05f);
                 tabOverview.animate().alpha(1f).scaleX(1f).scaleY(1f)
-                        .setDuration(320).setInterpolator(Ui.EMPHASIZED).start();
-                safariBar.animate().alpha(0f).translationY(Ui.dpf(26))
-                        .setDuration(220).setInterpolator(Ui.EMPHASIZED)
+                        .setDuration(290).setInterpolator(Ui.EMPHASIZED).start();
+                safariBar.animate().alpha(0f).translationY(Ui.dpf(22))
+                        .setDuration(200).setInterpolator(Ui.EMPHASIZED)
                         .withEndAction(() -> { safariBar.setVisibility(View.GONE); safariBar.setAlpha(1f); safariBar.setTranslationY(0f); }).start();
             }
         } else {
@@ -258,33 +288,130 @@ public final class MainActivity extends Activity implements TabManager.Listener,
                 refreshStartPage();
             } else {
                 tabOverview.animate().alpha(0f).scaleX(1.04f).scaleY(1.04f)
-                        .setDuration(240).setInterpolator(Ui.EMPHASIZED)
+                        .setDuration(220).setInterpolator(Ui.EMPHASIZED)
                         .withEndAction(() -> tabOverview.setVisibility(View.GONE)).start();
                 safariBar.setVisibility(View.VISIBLE);
                 safariBar.setAlpha(0f);
-                safariBar.setTranslationY(Ui.dpf(24));
+                safariBar.setTranslationY(Ui.dpf(20));
                 safariBar.animate().alpha(1f).translationY(0f)
-                        .setDuration(280).setInterpolator(Ui.EMPHASIZED).start();
+                        .setDuration(260).setInterpolator(Ui.EMPHASIZED).start();
                 applyUiSettings();
                 refreshStartPage();
             }
         }
     }
 
+    // ---- Google Translate Controls ----
+    private void buildTranslateBanner() {
+        translateBanner = new LinearLayout(this);
+        translateBanner.setOrientation(LinearLayout.HORIZONTAL);
+        translateBanner.setGravity(Gravity.CENTER_VERTICAL);
+        translateBanner.setPadding(Ui.dp(14), Ui.dp(8), Ui.dp(10), Ui.dp(8));
+        translateBanner.setBackground(Ui.roundStroke(Ui.sheetTint(), Ui.glassStroke(), 1f, 100));
+        translateBanner.setElevation(Ui.dpf(10));
+        translateBanner.setVisibility(View.GONE);
+
+        translateBannerText = Ui.text(this, "Google 번역됨", 13f, Ui.semibold, Ui.text());
+        translateBanner.addView(translateBannerText);
+
+        TextView langBtn = Ui.text(this, "언어", 12.5f, Ui.semibold, Ui.activeAccent());
+        langBtn.setPadding(Ui.dp(12), Ui.dp(2), Ui.dp(8), Ui.dp(2));
+        langBtn.setOnClickListener(v -> sheet.showTranslateSheet(this));
+        translateBanner.addView(langBtn);
+
+        TextView origBtn = Ui.text(this, "원문", 12.5f, Ui.semibold, Ui.text2());
+        origBtn.setPadding(Ui.dp(8), Ui.dp(2), Ui.dp(8), Ui.dp(2));
+        origBtn.setOnClickListener(v -> restoreCurrentPageOriginal());
+        translateBanner.addView(origBtn);
+
+        TextView closeBtn = Ui.text(this, "×", 15f, Ui.bold, Ui.text2());
+        closeBtn.setPadding(Ui.dp(6), Ui.dp(0), Ui.dp(4), Ui.dp(0));
+        closeBtn.setOnClickListener(v -> hideTranslateBanner());
+        translateBanner.addView(closeBtn);
+    }
+
+    void translateCurrentPage(String targetLang) {
+        TabManager.Tab t = tabs.activeTab();
+        if (t == null || t.webView == null || t.isStartPage()) {
+            Toast.makeText(this, "번역할 웹페이지가 없습니다.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        showTranslateBanner("Google 번역 중 · " + PageTranslator.labelFor(targetLang));
+        PageTranslator.translatePage(t.webView, targetLang);
+    }
+
+    void restoreCurrentPageOriginal() {
+        TabManager.Tab t = tabs.activeTab();
+        if (t != null && t.webView != null) {
+            PageTranslator.restoreOriginal(t.webView);
+            t.translated = false;
+            safariBar.updateState(t, tabs.canGoBack(), tabs.canGoForward(), tabs.activeList().size());
+        }
+        hideTranslateBanner();
+    }
+
+    private void showTranslateBanner(String msg) {
+        translateBanner.setBackground(Ui.roundStroke(Ui.sheetTint(), Ui.glassStroke(), 1f, 100));
+        translateBannerText.setTextColor(Ui.text());
+        translateBannerText.setText(msg);
+        translateBanner.animate().cancel();
+        translateBanner.setVisibility(View.VISIBLE);
+        if (!"robolectric".equals(android.os.Build.FINGERPRINT)) {
+            translateBanner.setAlpha(0f);
+            translateBanner.setTranslationY(-Ui.dpf(12));
+            translateBanner.animate().alpha(1f).translationY(0f).setDuration(220).setInterpolator(Ui.EMPHASIZED).start();
+        }
+    }
+
+    private void hideTranslateBanner() {
+        if (translateBanner.getVisibility() != View.VISIBLE) return;
+        if ("robolectric".equals(android.os.Build.FINGERPRINT)) {
+            translateBanner.setVisibility(View.GONE);
+            return;
+        }
+        translateBanner.animate().alpha(0f).translationY(-Ui.dpf(10)).setDuration(160)
+                .withEndAction(() -> translateBanner.setVisibility(View.GONE)).start();
+    }
+
     // ---- TabManager.Listener ----
     @Override public void onTabsChanged() {
         applySystemBars();
+        applyTopClearance();
         backdrop.setBackgroundColor(Ui.bg());
         TabManager.Tab t = tabs.activeTab();
+        safariBar.updateTabList(tabs.activeList(), tabs.activeIndex());
         safariBar.updateState(t, tabs.canGoBack(), tabs.canGoForward(), tabs.activeList().size());
         refreshStartPage();
     }
 
     @Override public void onPageUpdated(TabManager.Tab tab) {
+        safariBar.updateTabList(tabs.activeList(), tabs.activeIndex());
         if (tab == tabs.activeTab()) {
             safariBar.updateState(tab, tabs.canGoBack(), tabs.canGoForward(), tabs.activeList().size());
+            if (!tab.translated) hideTranslateBanner();
             refreshStartPage();
         }
+    }
+
+    @Override public void onPageTranslated(TabManager.Tab tab) {
+        if (tab == tabs.activeTab()) {
+            safariBar.updateState(tab, tabs.canGoBack(), tabs.canGoForward(), tabs.activeList().size());
+            showTranslateBanner("Google 번역됨 · " + PageTranslator.labelFor(Ui.translateLang));
+        }
+    }
+
+    @Override public void onSecurityWarning(TabManager.Tab tab, String url, String reason) {
+        sheet.showDangerGateSheet(this, tab, url, reason);
+    }
+
+    @Override public void onVpnRequired(TabManager.Tab tab, String url, String domain) {
+        sheet.showVpnGateSheet(this, tab, url, domain);
+    }
+
+    @Override public void onDangerousDownload(String fileName, String url, String mimeType, Runnable proceed) {
+        sheet.showConfirmSheet("실행 파일 다운로드 주의",
+                "'" + fileName + "'은(는) 기기 보안에 영향을 줄 수 있는 형식입니다. 신뢰할 수 있는 출처인 경우에만 다운로드하세요.",
+                "계속 다운로드", true, proceed);
     }
 
     @Override public void onProgress(TabManager.Tab tab, int progress) {
@@ -348,20 +475,28 @@ public final class MainActivity extends Activity implements TabManager.Listener,
     @Override public void onBack() { tabs.goBack(); }
     @Override public void onForward() { tabs.goForward(); }
     @Override public void onBackLongPress() {
-        String[] opts = tabs.canGoForward() ? new String[]{"앞으로 이동", "방문 기록 보기"} : new String[]{"방문 기록 보기"};
-        new AlertDialog.Builder(this).setItems(opts, (d, w) -> {
-            if (tabs.canGoForward() && w == 0) tabs.goForward();
-            else sheet.showLibrarySheet(this, 2);
-        }).show();
+        if (tabs.canGoForward()) {
+            sheet.showConfirmSheet("탐색", "앞으로 이동하거나 방문 기록을 볼 수 있습니다.", "앞으로 이동", false, tabs::goForward);
+        } else {
+            sheet.showLibrarySheet(this, 2);
+        }
     }
-    @Override public void onMoreMenu() { sheet.showMainMenu(this); }
-    @Override public void onPageMenu() { sheet.showMainMenu(this); }
+    @Override public void onMoreMenu(RectF anchor) {
+        safariBar.setMoreHidden(true);
+        sheet.showMainMenu(this, anchor, Icons.MORE, () -> safariBar.setMoreHidden(false));
+    }
+    @Override public void onPageMenu(RectF anchor) {
+        sheet.showMainMenu(this, anchor, Icons.PAGE_MENU, null);
+    }
     @Override public void onOpenTabs() { showTabOverview(true); }
     @Override public void onShare() { shareCurrentPage(); }
     @Override public void onBookmarks() { sheet.showLibrarySheet(this, 0); }
     @Override public void onReloadOrStop() { tabs.reloadOrStop(); }
     @Override public void onSubmitUrl(String input) { tabs.loadInput(input); }
     @Override public void onQueryChanged(String query) { populateSuggestions(query); }
+    @Override public void onSelectTabIndex(int index) { tabs.selectTab(tabs.privateMode, index); }
+    @Override public void onCloseTabIndex(int index) { tabs.closeTab(tabs.privateMode, index); }
+    @Override public void onNewTabInline() { tabs.newTab(tabs.privateMode, null, true); }
     @Override public void onEditModeChanged(boolean editing) {
         if (editing) {
             populateSuggestions(safariBar.addressField.getText().toString());
@@ -382,7 +517,6 @@ public final class MainActivity extends Activity implements TabManager.Listener,
         if (next >= 0 && next < count) {
             tabs.selectTab(tabs.privateMode, next);
         } else if (delta > 0) {
-            // Exact iOS 26 Safari behavior: swipe left past last tab opens a New Tab!
             tabs.newTab(tabs.privateMode, null, true);
             Toast.makeText(this, "새 탭", Toast.LENGTH_SHORT).show();
         }
@@ -475,7 +609,6 @@ public final class MainActivity extends Activity implements TabManager.Listener,
         suggestionList.removeAllViews();
         String q = query == null ? "" : query.trim();
 
-        // Quick Paste & Go from clipboard
         try {
             ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             if (cm != null && cm.hasPrimaryClip() && cm.getPrimaryClip().getItemCount() > 0) {
@@ -604,6 +737,7 @@ public final class MainActivity extends Activity implements TabManager.Listener,
     }
 
     @Override protected void onDestroy() {
+        SecurityGuard.stopWatchingVpn(this);
         if (tabs != null) {
             tabs.persistSession();
             tabs.destroyAll();
