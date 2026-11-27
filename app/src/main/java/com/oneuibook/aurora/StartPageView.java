@@ -197,11 +197,6 @@ final class StartPageView extends ScrollView {
                 int[] pal = LIGHT_PALETTES[Math.abs(wallpaperIdx) % LIGHT_PALETTES.length];
                 bgPaint.setShader(new LinearGradient(0, 0, W * 0.45f, H, pal, new float[]{0f, 0.5f, 1f}, Shader.TileMode.CLAMP));
                 c.drawRect(0, 0, W, H, bgPaint);
-                if (wallpaperIdx != 5) {
-                    int glow = wallpaperIdx == 3 ? 0x26F472B6 : (wallpaperIdx == 1 ? 0x262DD4BF : (wallpaperIdx == 2 ? 0x24818CF8 : 0x2638BDF8));
-                    bgPaint.setShader(new RadialGradient(W * 0.82f, H * 0.14f, W * 0.72f, glow, 0x00FFFFFF, Shader.TileMode.CLAMP));
-                    c.drawRect(0, 0, W, H, bgPaint);
-                }
                 bgPaint.setShader(null);
             }
             c.restore();
@@ -364,39 +359,33 @@ final class StartPageView extends ScrollView {
             }
         }
 
-        // 3. 개인정보 보호 리포트 (Clean single-row Safari glass card)
+        // 3. 개인정보 보호 리포트 (Restrained Apple Safari single-row glass card — zero noisy badges)
         if (showPriv) {
             body.addView(sectionHeader(c, "개인정보 보호 리포트", null, null));
             LinearLayout pr = glassCard(c);
             pr.setOrientation(LinearLayout.HORIZONTAL);
             pr.setGravity(Gravity.CENTER_VERTICAL);
-            pr.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(14), Ui.dp(14));
+            pr.setPadding(Ui.dp(16), Ui.dp(14), Ui.dp(16), Ui.dp(14));
 
             boolean vpnOn = SecurityGuard.isVpnActive(c);
             View shIc = new View(c) {
                 @Override protected void onDraw(Canvas canvas) {
-                    Icons.draw(canvas, Icons.SHIELD, getWidth() / 2f, getHeight() / 2f, Ui.dpf(20), vpnOn ? 0xFF34C759 : Ui.activeAccent());
+                    Icons.draw(canvas, Icons.SHIELD, getWidth() / 2f, getHeight() / 2f, Ui.dpf(19), Ui.text2());
                 }
             };
-            pr.addView(shIc, new LinearLayout.LayoutParams(Ui.dp(24), Ui.dp(24)));
-            TextView num = Ui.text(c, String.valueOf(BrowserStore.blockedTrackers), 20f, Ui.bold, Ui.text());
-            num.setPadding(Ui.dp(8), 0, Ui.dp(12), 0);
+            pr.addView(shIc, new LinearLayout.LayoutParams(Ui.dp(22), Ui.dp(22)));
+            TextView num = Ui.text(c, String.valueOf(BrowserStore.blockedTrackers), 19f, Ui.bold, Ui.text());
+            num.setPadding(Ui.dp(10), 0, Ui.dp(12), 0);
             pr.addView(num);
 
-            TextView prTxt = Ui.text(c,
-                    BrowserStore.blockedTrackers == 0
-                            ? "추적기·피싱 보호 활성화됨"
-                            : "추적기를 차단하고 있습니다.",
-                    13.5f, Ui.regular, Ui.text2());
-            prTxt.setMaxLines(1);
+            String reportText = BrowserStore.blockedTrackers == 0
+                    ? "추적기 차단이 켜져 있습니다."
+                    : "추적기가 프로파일링하지 못하도록 차단했습니다.";
+            if (vpnOn) reportText = SecurityGuard.vpnLabel(Ui.vpnProvider) + " 연결됨 · " + reportText;
+            TextView prTxt = Ui.text(c, reportText, 13f, Ui.regular, Ui.text2());
+            prTxt.setMaxLines(2);
             prTxt.setEllipsize(TextUtils.TruncateAt.END);
             pr.addView(prTxt, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-            String vpnTag = vpnOn ? SecurityGuard.vpnLabel(Ui.vpnProvider) : (BrowserStore.vpnDomains.isEmpty() ? "VPN" : "VPN " + BrowserStore.vpnDomains.size());
-            TextView vpnChip = Ui.text(c, vpnTag, 11.5f, Ui.semibold, vpnOn ? 0xFF34C759 : Ui.activeAccent());
-            vpnChip.setPadding(Ui.dp(10), Ui.dp(5), Ui.dp(10), Ui.dp(5));
-            vpnChip.setBackground(Ui.round(Ui.alpha(vpnOn ? 0xFF34C759 : Ui.activeAccent(), 0.14f), 100));
-            pr.addView(vpnChip);
             pr.setOnClickListener(v -> listener.onOpenSecurityVpn());
             Ui.press(pr, 0.98f);
             body.addView(pr, cardLp(10));

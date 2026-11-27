@@ -402,50 +402,129 @@ final class GlassSheet extends FrameLayout {
         showBuilt(fromAnchor, iconId, restoreSource);
     }
 
-    // ---- 2. Google Translate Sheet (Manual + Auto-Translate) ----
+    // ---- 2. Granular Google Translate Sheet (Per-site Never Translate, Per-language Always Translate, Target Picker) ----
     void showTranslateSheet(MainActivity act) {
         content.removeAllViews();
         Context c = getContext();
-        content.addView(sheetHeader(c, "웹페이지 번역", "Google 번역"));
+        TabManager.Tab tab = act.tabs.activeTab();
+        boolean onPage = tab != null && !tab.isStartPage();
+        String curDom = onPage ? BrowserStore.domainOf(tab.url) : "";
+        String detLang = (onPage && tab.detectedLang != null) ? tab.detectedLang : "";
+        String baseTarget = Ui.translateLang.toLowerCase(java.util.Locale.ROOT).split("-")[0];
 
+        String sub = onPage
+                ? (curDom + (tab.translated ? " · 번역됨" : (!detLang.isEmpty() ? " · " + PageTranslator.labelFor(detLang) : "")))
+                : "Google 번역";
+        content.addView(sheetHeader(c, "웹페이지 번역", sub));
+
+        // 1) Primary 1-tap Translate / Restore Original action + Per-site "이 사이트 번역 안 함"
+        if (onPage) {
+            LinearLayout pageGrp = groupBox(c);
+            if (tab.translated) {
+                pageGrp.addView(iosMenuRow(c, "원문으로 되돌리기", Icons.RELOAD, null, v -> {
+                    dismiss();
+                    act.restoreCurrentPageOriginal();
+                }));
+            } else {
+                pageGrp.addView(iosMenuRow(c, PageTranslator.labelFor(Ui.translateLang) + "(으)로 지금 번역", Icons.TRANSLATE, null, v -> {
+                    dismiss();
+                    act.translateCurrentPage(Ui.translateLang);
+                }));
+            }
+            if (!curDom.isEmpty()) {
+                pageGrp.addView(div(c));
+                boolean neverSite = BrowserStore.isNeverTranslateHost(curDom);
+                pageGrp.addView(toggleRow(c, "이 사이트 번역 안 함 (" + curDom + ")", neverSite, on -> {
+                    if (on) {
+                        BrowserStore.addNeverTranslateHost(c, curDom);
+                        if (tab.translated) act.restoreCurrentPageOriginal();
+                    } else {
+                        BrowserStore.removeNeverTranslateHost(c, curDom);
+                    }
+                    showTranslateSheet(act);
+                }));
+            }
+            if (!detLang.isEmpty() && !detLang.equals(baseTarget)) {
+                pageGrp.addView(div(c));
+                boolean alwaysLang = BrowserStore.isAlwaysTranslateLang(detLang);
+                pageGrp.addView(toggleRow(c, PageTranslator.labelFor(detLang) + " 페이지 항상 번역", alwaysLang, on -> {
+                    BrowserStore.setAlwaysTranslateLang(c, detLang, on);
+                    if (on && !tab.translated && !BrowserStore.isNeverTranslateHost(curDom)) {
+                        act.translateCurrentPage(Ui.translateLang);
+                    }
+                }));
+            }
+            content.addView(pageGrp);
+            content.addView(spacer(c, 10));
+        }
+
+        // 2) Global Auto-Translate + Compact Target Language Picker
         LinearLayout autoGrp = groupBox(c);
         autoGrp.addView(toggleRow(c, "외국어 페이지 자동 번역", Ui.autoTranslate, on -> {
             Ui.autoTranslate = on;
             Ui.savePrefs(c);
-            if (on) {
-                TabManager.Tab t = act.tabs.activeTab();
-                if (t != null && t.webView != null && !t.isStartPage() && !t.translated) {
-                    PageTranslator.autoTranslateIfForeign(t.webView, Ui.translateLang);
-                }
+            if (on && onPage && tab.webView != null && !tab.translated) {
+                PageTranslator.autoTranslateIfForeign(tab.webView, tab.url, Ui.translateLang, l -> tab.detectedLang = l);
             }
         }));
-        content.addView(autoGrp);
-        content.addView(spacer(c, 10));
+        autoGrp.addView(div(c));
 
-        LinearLayout grp = groupBox(c);
+        LinearLayout langBox = new LinearLayout(c);
+        langBox.setOrientation(LinearLayout.VERTICAL);
+        langBox.setPadding(Ui.dp(16), Ui.dp(11), Ui.dp(16), Ui.dp(12));
+        langBox.addView(Ui.text(c, "대상 언어", 12.5f, Ui.semibold, Ui.text2()));
+
+        android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(c);
+        hs.setHorizontalScrollBarEnabled(false);
+        LinearLayout pills = new LinearLayout(c);
+        pills.setOrientation(LinearLayout.HORIZONTAL);
+        pills.setPadding(0, Ui.dp(8), 0, 0);
         for (int i = 0; i < PageTranslator.LANG_CODES.length; i++) {
             final String code = PageTranslator.LANG_CODES[i];
             final String label = PageTranslator.LANG_LABELS[i];
             boolean sel = code.equals(Ui.translateLang);
-            grp.addView(iosMenuRow(c, label, sel ? Icons.CHECK : Icons.TRANSLATE, sel ? "선택됨" : null, v -> {
+            TextView ch = Ui.text(c, label, 13f, sel ? Ui.semibold : Ui.medium, sel ? 0xFFFFFFFF : Ui.text());
+            ch.setPadding(Ui.dp(13), Ui.dp(7), Ui.dp(13), Ui.dp(7));
+            ch.setBackground(Ui.round(sel ? Ui.activeAccent() : Ui.alpha(Ui.text(), Ui.isDarkSurface() ? 0.12f : 0.08f), 100));
+            ch.setOnClickListener(v -> {
                 Ui.translateLang = code;
                 Ui.savePrefs(c);
-                dismiss();
-                act.translateCurrentPage(code);
-            }));
-            if (i + 1 < PageTranslator.LANG_CODES.length) grp.addView(div(c));
+                if (onPage && !BrowserStore.isNeverTranslateHost(curDom)) {
+                    dismiss();
+                    act.translateCurrentPage(code);
+                } else {
+                    showTranslateSheet(act);
+                }
+            });
+            Ui.press(ch, 0.94f);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            if (i > 0) lp.leftMargin = Ui.dp(7);
+            pills.addView(ch, lp);
         }
-        content.addView(grp);
+        hs.addView(pills);
+        langBox.addView(hs);
+        autoGrp.addView(langBox);
+        content.addView(autoGrp);
 
-        TabManager.Tab tab = act.tabs.activeTab();
-        if (tab != null && tab.translated) {
+        // 3) Manage "번역 안 함" excluded domains
+        if (!BrowserStore.neverTranslateHosts.isEmpty()) {
             content.addView(spacer(c, 10));
-            LinearLayout resetGrp = groupBox(c);
-            resetGrp.addView(iosMenuRow(c, "원문으로 되돌리기", Icons.RELOAD, null, v -> {
-                dismiss();
-                act.restoreCurrentPageOriginal();
-            }));
-            content.addView(resetGrp);
+            TextView exTitle = Ui.text(c, "번역 안 함 사이트 (" + BrowserStore.neverTranslateHosts.size() + ")", 12.5f, Ui.semibold, Ui.text2());
+            exTitle.setPadding(Ui.dp(6), Ui.dp(2), Ui.dp(6), Ui.dp(6));
+            content.addView(exTitle);
+
+            LinearLayout exGrp = groupBox(c);
+            List<String> hosts = new ArrayList<>(BrowserStore.neverTranslateHosts);
+            Collections.sort(hosts);
+            for (int i = 0; i < hosts.size(); i++) {
+                final String h = hosts.get(i);
+                exGrp.addView(iosMenuRow(c, h, Icons.CLOSE, "해제", v -> {
+                    BrowserStore.removeNeverTranslateHost(c, h);
+                    showTranslateSheet(act);
+                }));
+                if (i + 1 < hosts.size()) exGrp.addView(div(c));
+            }
+            content.addView(exGrp);
         }
         showBuilt(null, Icons.TRANSLATE, null);
     }
@@ -547,7 +626,7 @@ final class GlassSheet extends FrameLayout {
         Context c = getContext();
         boolean vpnOn = SecurityGuard.isVpnActive(c);
         String vpnName = SecurityGuard.vpnLabel(Ui.vpnProvider);
-        content.addView(sheetHeader(c, "보안 및 VPN", vpnOn ? vpnName + " 터널 연결됨" : "실시간 보안 보호 활성"));
+        content.addView(sheetHeader(c, "보안 및 VPN", vpnOn ? vpnName + " 연결됨" : vpnName));
 
         // Live Security & VPN status pill
         LinearLayout statusBox = groupBox(c);

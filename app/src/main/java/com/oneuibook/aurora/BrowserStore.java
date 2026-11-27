@@ -67,6 +67,8 @@ final class BrowserStore {
     static final List<WebAppItem> webApps = new ArrayList<>();
     static final Set<String> desktopHosts = new HashSet<>();
     static final Set<String> vpnDomains = new HashSet<>();
+    static final Set<String> neverTranslateHosts = new HashSet<>();
+    static final Set<String> alwaysTranslateLangs = new HashSet<>();
     static int blockedTrackers;
     static String lastSyncInfo = "";
     static String syncUri = "";
@@ -120,6 +122,14 @@ final class BrowserStore {
         vpnDomains.clear();
         Set<String> vd = p.getStringSet("vpn_domains", null);
         if (vd != null) vpnDomains.addAll(vd);
+
+        neverTranslateHosts.clear();
+        Set<String> nth = p.getStringSet("never_translate_hosts", null);
+        if (nth != null) neverTranslateHosts.addAll(nth);
+
+        alwaysTranslateLangs.clear();
+        Set<String> atl = p.getStringSet("always_translate_langs", null);
+        if (atl != null) alwaysTranslateLangs.addAll(atl);
     }
 
     private static void seedDefaultFavorites() {
@@ -151,6 +161,8 @@ final class BrowserStore {
                     .putString("webapps", w.toString())
                     .putStringSet("desktop_hosts", new HashSet<>(desktopHosts))
                     .putStringSet("vpn_domains", new HashSet<>(vpnDomains))
+                    .putStringSet("never_translate_hosts", new HashSet<>(neverTranslateHosts))
+                    .putStringSet("always_translate_langs", new HashSet<>(alwaysTranslateLangs))
                     .putInt("blocked_trackers", blockedTrackers)
                     .putString("last_sync_info", lastSyncInfo)
                     .putString("sync_uri", syncUri)
@@ -246,6 +258,47 @@ final class BrowserStore {
         String dom = normalizeDomain(raw);
         if (dom.isEmpty()) return;
         vpnDomains.remove(dom);
+        save(c);
+    }
+
+    static boolean isNeverTranslateHost(String raw) {
+        String dom = normalizeDomain(raw);
+        if (dom.isEmpty()) return false;
+        if (neverTranslateHosts.contains(dom)) return true;
+        int dot = dom.indexOf('.');
+        while (dot > 0 && dot < dom.length() - 1) {
+            dom = dom.substring(dot + 1);
+            if (neverTranslateHosts.contains(dom)) return true;
+            dot = dom.indexOf('.');
+        }
+        return false;
+    }
+
+    static void addNeverTranslateHost(Context c, String raw) {
+        String dom = normalizeDomain(raw);
+        if (dom.isEmpty()) return;
+        neverTranslateHosts.add(dom);
+        save(c);
+    }
+
+    static void removeNeverTranslateHost(Context c, String raw) {
+        String dom = normalizeDomain(raw);
+        if (dom.isEmpty()) return;
+        neverTranslateHosts.remove(dom);
+        save(c);
+    }
+
+    static boolean isAlwaysTranslateLang(String langCode) {
+        if (langCode == null || langCode.trim().isEmpty()) return false;
+        String base = langCode.trim().toLowerCase(java.util.Locale.ROOT).split("-")[0];
+        return alwaysTranslateLangs.contains(base);
+    }
+
+    static void setAlwaysTranslateLang(Context c, String langCode, boolean on) {
+        if (langCode == null || langCode.trim().isEmpty()) return;
+        String base = langCode.trim().toLowerCase(java.util.Locale.ROOT).split("-")[0];
+        if (on) alwaysTranslateLangs.add(base);
+        else alwaysTranslateLangs.remove(base);
         save(c);
     }
 

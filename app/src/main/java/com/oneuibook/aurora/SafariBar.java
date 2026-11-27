@@ -210,12 +210,23 @@ final class SafariBar extends FrameLayout {
         return base;
     }
 
-    /** Bottom clearance so fixed-bottom webpage UI (YouTube mobile tabs, etc.) NEVER overlaps Aurora's floating bottom bar. */
+    private boolean collapsedTarget;
+
+    boolean isCollapsed() { return collapsedTarget; }
+
+    /** Dynamic bottom clearance (in CSS dp/px) injected into live webpages so fixed-bottom site UI glides cleanly above the floating glass bar. */
+    int floatingBarClearanceDp() {
+        if (isWideLayout()) return 0;
+        int navDp = Math.round(Ui.navInset / Math.max(1f, Ui.density));
+        if (collapsedTarget && Ui.layoutMode != 2) return navDp + 40;
+        if (Ui.layoutMode == 1) return navDp + 112; // Classic Bottom (pill + 5-icon bar)
+        if (Ui.layoutMode == 2) return navDp + 66;  // Top address bar + bottom 5-icon bar
+        return navDp + 72;                          // Compact floating glass pill
+    }
+
+    /** Edge-to-edge WebView behind the floating bottom bar (0 bottom cut-off margin!). */
     int bottomContentInsetPx() {
-        if (isWideLayout()) return Ui.navInset;
-        if (Ui.layoutMode == 1) return Ui.navInset + Ui.dp(108); // Classic Bottom (pill + 5-icon bar)
-        if (Ui.layoutMode == 2) return Ui.navInset + Ui.dp(64);  // Top address bar + bottom 5-icon bar
-        return Ui.navInset + Ui.dp(66);                          // Compact (50dp pill + 12dp bottom + 4dp gap)
+        return 0;
     }
 
     void setMoreHidden(boolean hidden) {
@@ -293,6 +304,7 @@ final class SafariBar extends FrameLayout {
 
     void setCollapsed(boolean min) {
         if (editing || Ui.layoutMode == 2 || isWideLayout()) min = false;
+        collapsedTarget = min;
         collapse.to(min ? 1f : 0f);
     }
 

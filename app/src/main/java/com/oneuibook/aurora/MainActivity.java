@@ -37,7 +37,7 @@ import java.util.Locale;
  * - Chrome Web Store CRX3 extensions, PWA installation, and Cloud Sync
  */
 public final class MainActivity extends Activity implements TabManager.Listener, SafariBar.Listener {
-    static final String VERSION = "9.5.6";
+    static final String VERSION = "9.5.7";
     private static final int REQ_FILE_CHOOSER = 7001, REQ_SYNC_CREATE = 7002, REQ_SYNC_OPEN = 7003, REQ_START_BG = 7004;
 
     FrameLayout root;
@@ -199,11 +199,17 @@ public final class MainActivity extends Activity implements TabManager.Listener,
 
     private void applyTopClearance() {
         int topInset = safariBar != null ? safariBar.topContentInsetPx() : Ui.statusInset;
-        int botInset = safariBar != null ? safariBar.bottomContentInsetPx() : Ui.navInset;
         FrameLayout.LayoutParams wlp = (FrameLayout.LayoutParams) webHost.getLayoutParams();
         wlp.topMargin = topInset;
-        wlp.bottomMargin = botInset;
+        // Edge-to-edge WebView behind the floating Liquid Glass bottom bar (zero cut-off strip!)
+        wlp.bottomMargin = 0;
         webHost.setLayoutParams(wlp);
+        if (tabs != null) {
+            TabManager.Tab cur = tabs.activeTab();
+            if (cur != null && cur.webView != null && !cur.isStartPage()) {
+                TabManager.injectFloatingBarClearance(cur.webView, floatingBottomBarDp());
+            }
+        }
         if (statusBarBg != null) {
             statusBarBg.getLayoutParams().height = topInset;
             statusBarBg.requestLayout();
@@ -213,6 +219,10 @@ public final class MainActivity extends Activity implements TabManager.Listener,
         if (suggestionOverlay != null && suggestionOverlay.getChildCount() > 0) {
             suggestionOverlay.getChildAt(0).setPadding(Ui.dp(16), topInset + Ui.dp(12), Ui.dp(16), Ui.dp(120));
         }
+    }
+
+    @Override public int floatingBottomBarDp() {
+        return safariBar != null ? safariBar.floatingBarClearanceDp() : 0;
     }
 
     @Override protected void onNewIntent(Intent intent) {
@@ -347,6 +357,19 @@ public final class MainActivity extends Activity implements TabManager.Listener,
         origBtn.setOnClickListener(v -> restoreCurrentPageOriginal());
         translateBanner.addView(origBtn);
 
+        TextView neverBtn = Ui.text(this, "안 함", 12.5f, Ui.semibold, Ui.text2());
+        neverBtn.setPadding(Ui.dp(6), Ui.dp(2), Ui.dp(8), Ui.dp(2));
+        neverBtn.setOnClickListener(v -> {
+            TabManager.Tab t = tabs.activeTab();
+            if (t != null && !t.isStartPage()) {
+                String dom = BrowserStore.domainOf(t.url);
+                BrowserStore.addNeverTranslateHost(this, t.url);
+                restoreCurrentPageOriginal();
+                Toast.makeText(this, dom + " 번역 안 함으로 설정됨", Toast.LENGTH_SHORT).show();
+            }
+        });
+        translateBanner.addView(neverBtn);
+
         TextView closeBtn = Ui.text(this, "×", 15f, Ui.bold, Ui.text2());
         closeBtn.setPadding(Ui.dp(6), Ui.dp(0), Ui.dp(4), Ui.dp(0));
         closeBtn.setOnClickListener(v -> hideTranslateBanner());
@@ -443,12 +466,19 @@ public final class MainActivity extends Activity implements TabManager.Listener,
 
     @Override public void onScrollDelta(int dy) {
         scrollAccum += dy;
+        boolean before = safariBar.isCollapsed();
         if (scrollAccum > Ui.dp(34)) {
             safariBar.setCollapsed(true);
             scrollAccum = 0;
         } else if (scrollAccum < -Ui.dp(24)) {
             safariBar.setCollapsed(false);
             scrollAccum = 0;
+        }
+        if (before != safariBar.isCollapsed() && tabs != null) {
+            TabManager.Tab cur = tabs.activeTab();
+            if (cur != null && cur.webView != null && !cur.isStartPage()) {
+                TabManager.injectFloatingBarClearance(cur.webView, floatingBottomBarDp());
+            }
         }
     }
 

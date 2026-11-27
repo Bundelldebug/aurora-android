@@ -57,6 +57,7 @@ final class TabManager {
         default void onVpnRequired(Tab tab, String url, String domain) {}
         default void onDangerousDownload(String fileName, String url, String mimeType, Runnable proceed) { proceed.run(); }
         default void onPageTranslated(Tab tab) {}
+        default int floatingBottomBarDp() { return 0; }
     }
 
     static final class Tab {
@@ -69,6 +70,7 @@ final class TabManager {
         boolean desktopMode;
         boolean readerMode;
         boolean translated;
+        String detectedLang = "";
         Bitmap favicon;
         Bitmap thumbnail;
         Bundle savedState;
@@ -527,6 +529,7 @@ final class TabManager {
                 t.url = url;
                 t.loading = true;
                 t.translated = false;
+                t.detectedLang = "";
                 t.progress = 12;
                 if (fav != null) t.favicon = fav;
                 if (Ui.securityShield) view.evaluateJavascript(SecurityGuard.HARDENING_JS, null);
@@ -542,8 +545,9 @@ final class TabManager {
                 if (title != null && !title.isEmpty()) t.title = title;
                 if (!t.isPrivate) BrowserStore.recordHistory(ctx, t.title, url);
                 ExtensionManager.injectForPage(ctx, view, url, false);
-                if (Ui.autoTranslate && !t.isStartPage()) {
-                    PageTranslator.autoTranslateIfForeign(view, Ui.translateLang);
+                if (!t.isStartPage()) {
+                    injectFloatingBarClearance(view, listener.floatingBottomBarDp());
+                    PageTranslator.autoTranslateIfForeign(view, url, Ui.translateLang, lang -> t.detectedLang = lang);
                 }
                 persistSession();
                 listener.onPageUpdated(t);
@@ -627,6 +631,44 @@ final class TabManager {
 
         t.webView = wv;
         applyTabSettings(t);
+    }
+
+    /**
+     * Enables true edge-to-edge floating Liquid Glass bottom bar without interfering with fixed-bottom webpage UI
+     * (such as YouTube mobile's ytm-pivot-bar-renderer, sticky footers, or chat inputs):
+     * - Sets --aurora-bar-h CSS variable & bottom scroll padding so the end of pages scrolls cleanly above the glass bar.
+     * - Smoothly lifts ONLY fixed/sticky bottom navigation bars above the floating pill, while normal page content
+     *   continues to flow edge-to-edge behind the translucent glass bar!
+     */
+    static String buildFloatingClearanceJs(int barDp) {
+        int px = Math.max(0, barDp);
+        return "(function(){"
+                + "var h=" + px + ";"
+                + "var root=document.documentElement;if(!root)return;"
+                + "root.style.setProperty('--aurora-bar-h',h+'px');"
+                + "var st=document.getElementById('__aurora_float_safe');"
+                + "if(!st){st=document.createElement('style');st.id='__aurora_float_safe';"
+                + "st.textContent='html{scroll-padding-bottom:calc(var(--aurora-bar-h,0px) + 12px)!important;}'"
+                + "+'body{padding-bottom:var(--aurora-bar-h,0px)!important;}'"
+                + "+'ytm-pivot-bar-renderer,.pivot-bar-renderer,[data-aurora-lift=\"1\"]{bottom:var(--aurora-bar-h,0px)!important;transition:bottom 200ms ease!important;}';"
+                + "(document.head||root).appendChild(st);}"
+                + "function scan(){if(h<=0)return;var vw=window.innerWidth||360;var vh=window.innerHeight||800;"
+                + "var els=document.querySelectorAll('nav,footer,header,div,aside,section,ytm-pivot-bar-renderer,[role=\"tablist\"],[role=\"navigation\"]');"
+                + "var checked=0;for(var i=0;i<els.length&&checked<160;i++){var el=els[i];if(!el||!el.getBoundingClientRect)continue;"
+                + "var cs=window.getComputedStyle(el);if(cs.position!=='fixed'&&cs.position!=='sticky')continue;checked++;"
+                + "var r=el.getBoundingClientRect();"
+                + "if(r.height>=28&&r.height<=104&&r.width>=vw*0.52&&r.bottom>=vh-18&&r.bottom<=vh+18&&r.top>vh*0.62){"
+                + "el.setAttribute('data-aurora-lift','1');}}}"
+                + "if(!window.__auroraLiftInit){window.__auroraLiftInit=true;"
+                + "try{new MutationObserver(function(){if(window.__auroraLiftT)clearTimeout(window.__auroraLiftT);window.__auroraLiftT=setTimeout(scan,220);})"
+                + ".observe(document.body||root,{childList:true,subtree:true});}catch(e){}}"
+                + "scan();"
+                + "})();";
+    }
+
+    static void injectFloatingBarClearance(WebView wv, int barDp) {
+        if (wv == null) return;
+        try { wv.evaluateJavascript(buildFloatingClearanceJs(barDp), null); } catch (Throwable ignored) {}
     }
 
     private void applyTabSettings(Tab t) {

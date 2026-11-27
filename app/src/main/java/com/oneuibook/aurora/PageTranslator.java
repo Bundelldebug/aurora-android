@@ -38,7 +38,12 @@ final class PageTranslator {
     private static final java.util.WeakHashMap<WebView, Bridge> BRIDGES = new java.util.WeakHashMap<>();
 
     static String labelFor(String code) {
-        for (int i = 0; i < LANG_CODES.length; i++) if (LANG_CODES[i].equals(code)) return LANG_LABELS[i];
+        if (code == null) return LANG_LABELS[0];
+        String norm = code.trim().toLowerCase(Locale.ROOT);
+        for (int i = 0; i < LANG_CODES.length; i++) {
+            String lc = LANG_CODES[i].toLowerCase(Locale.ROOT);
+            if (lc.equals(norm) || lc.startsWith(norm + "-")) return LANG_LABELS[i];
+        }
         return LANG_LABELS[0];
     }
 
@@ -250,28 +255,47 @@ final class PageTranslator {
         wv.evaluateJavascript(js, null);
     }
 
-    /** Automatically detects if the loaded webpage is in a foreign language and translates it into targetLang. */
-    static void autoTranslateIfForeign(WebView wv, String targetLang) {
-        if (wv == null || targetLang == null || targetLang.isEmpty()) return;
-        String baseLang = targetLang.toLowerCase(Locale.ROOT).split("-")[0];
+    /** Detects the dominant webpage language ('ko', 'en', 'ja', 'zh', 'es', 'fr', 'de', or ''). */
+    static void detectPageLanguage(WebView wv, java.util.function.Consumer<String> cb) {
+        if (wv == null) { if (cb != null) cb.accept(""); return; }
         String detectJs = "(function(){"
-                + "var lang=(document.documentElement.lang||'').toLowerCase();"
-                + "var txt=(document.body&&document.body.innerText?document.body.innerText:'').slice(0,1200);"
+                + "var lang=(document.documentElement.lang||'').toLowerCase().split(/[-_]/)[0];"
+                + "var txt=(document.body&&document.body.innerText?document.body.innerText:'').slice(0,1400);"
                 + "var hangul=(txt.match(/[\\uAC00-\\uD7A3]/g)||[]).length;"
                 + "var kana=(txt.match(/[\\u3040-\\u30FF]/g)||[]).length;"
-                + "var latin=(txt.match(/[A-Za-z]/g)||[]).length;"
                 + "var han=(txt.match(/[\\u4E00-\\u9FFF]/g)||[]).length;"
-                + "var total=hangul+kana+latin+han;"
-                + "if(total<40)return 'SKIP';"
-                + "var tl=" + JSONObject.quote(baseLang) + ";"
-                + "if(tl==='ko')return (hangul/total<0.18&&lang.indexOf('ko')!==0)?'TRANSLATE':'SKIP';"
-                + "if(tl==='ja')return (kana/total<0.08&&lang.indexOf('ja')!==0)?'TRANSLATE':'SKIP';"
-                + "if(tl==='zh')return (han/total<0.20&&lang.indexOf('zh')!==0)?'TRANSLATE':'SKIP';"
-                + "if(tl==='en')return (latin/total<0.45&&lang.indexOf('en')!==0)?'TRANSLATE':'SKIP';"
-                + "return (lang&&lang.indexOf(tl)!==0)?'TRANSLATE':'SKIP';"
+                + "var latin=(txt.match(/[A-Za-z]/g)||[]).length;"
+                + "var total=hangul+kana+han+latin;"
+                + "if(total<35)return lang||'';"
+                + "if(hangul/total>=0.20)return 'ko';"
+                + "if(kana/total>=0.08)return 'ja';"
+                + "if(han/total>=0.22)return 'zh';"
+                + "if(lang==='es'||lang==='fr'||lang==='de')return lang;"
+                + "if(latin/total>=0.45)return lang||'en';"
+                + "return lang||'';"
                 + "})();";
         wv.evaluateJavascript(detectJs, res -> {
-            if (res != null && res.contains("TRANSLATE")) {
+            String code = "";
+            if (res != null) code = res.replace("\"", "").replace("null", "").trim().toLowerCase(Locale.ROOT);
+            if (cb != null) cb.accept(code);
+        });
+    }
+
+    /** Automatically detects if the loaded webpage is foreign, honoring per-site Never Translate & per-language Always Translate rules. */
+    static void autoTranslateIfForeign(WebView wv, String targetLang) {
+        autoTranslateIfForeign(wv, null, targetLang, null);
+    }
+
+    static void autoTranslateIfForeign(WebView wv, String pageUrl, String targetLang, java.util.function.Consumer<String> onDetectedLang) {
+        if (wv == null || targetLang == null || targetLang.isEmpty()) return;
+        final String baseTarget = targetLang.toLowerCase(Locale.ROOT).split("-")[0];
+        detectPageLanguage(wv, detected -> {
+            if (onDetectedLang != null && detected != null && !detected.isEmpty()) {
+                onDetectedLang.accept(detected);
+            }
+            if (pageUrl != null && BrowserStore.isNeverTranslateHost(pageUrl)) return;
+            if (detected == null || detected.isEmpty() || detected.equals(baseTarget)) return;
+            if (Ui.autoTranslate || BrowserStore.isAlwaysTranslateLang(detected)) {
                 translatePage(wv, targetLang);
             }
         });

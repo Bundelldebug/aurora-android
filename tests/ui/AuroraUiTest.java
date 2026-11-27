@@ -165,9 +165,24 @@ public class AuroraUiTest {
         assertFalse(SecurityGuard.requiresVpnForUrl("https://www.naver.com"));
         BrowserStore.removeVpnDomain(ctx, "reddit.com");
 
-        // Google Translate JSON parser
+        // Google Translate JSON parser + per-site Never Translate & per-language Always Translate rules
         String sample = "[[[\"안녕하세요 \",\"Hello \",null,null,10],[\"세계\",\"world\",null,null,10]],null,\"en\"]";
         assertEquals("안녕하세요 세계", PageTranslator.parseGoogleTranslateJson(sample));
+
+        BrowserStore.addNeverTranslateHost(ctx, "https://docs.github.com/en");
+        assertTrue(BrowserStore.isNeverTranslateHost("https://docs.github.com/en/actions"));
+        assertFalse(BrowserStore.isNeverTranslateHost("https://en.wikipedia.org/wiki/Main"));
+        BrowserStore.removeNeverTranslateHost(ctx, "docs.github.com");
+        assertFalse(BrowserStore.isNeverTranslateHost("https://docs.github.com/en"));
+
+        BrowserStore.setAlwaysTranslateLang(ctx, "ja", true);
+        assertTrue(BrowserStore.isAlwaysTranslateLang("ja"));
+        BrowserStore.setAlwaysTranslateLang(ctx, "ja", false);
+        assertFalse(BrowserStore.isAlwaysTranslateLang("ja"));
+
+        String clearanceJs = TabManager.buildFloatingClearanceJs(72);
+        assertTrue(clearanceJs.contains("--aurora-bar-h"));
+        assertTrue(clearanceJs.contains("ytm-pivot-bar-renderer"));
     }
 
     @Test @Config(qualifiers = "ko-rKR-w412dp-h915dp-xxhdpi")
@@ -175,8 +190,11 @@ public class AuroraUiTest {
         ActivityController<MainActivity> ctrl = Robolectric.buildActivity(MainActivity.class).setup();
         MainActivity act = ctrl.get();
         assertEquals("오로라", act.getString(R.string.app_name));
-        assertEquals("9.5.6", MainActivity.VERSION);
+        assertEquals("9.5.7", MainActivity.VERSION);
         assertEquals(0, Ui.layoutMode);
+        // True edge-to-edge WebView behind the floating bottom glass bar + dynamic CSS clearance!
+        assertEquals(0, ((android.widget.FrameLayout.LayoutParams) act.webHost.getLayoutParams()).bottomMargin);
+        assertTrue(act.floatingBottomBarDp() > 0);
 
         // 1. Light Start Page + iOS 26 Safari Compact Liquid Glass Pill
         shot(act.root, 1236, 2745, "phone-start-light.png");
@@ -185,7 +203,9 @@ public class AuroraUiTest {
         act.onMoreMenu(act.safariBar.moreBtnAnchor());
         shot(act.root, 1236, 2745, "phone-menu.png");
 
-        // 3. Security & NordVPN Sheet + Extensions + Settings
+        // 3. Granular Translate Sheet + Security & NordVPN Sheet + Extensions + Settings
+        act.sheet.showTranslateSheet(act);
+        shot(act.root, 1236, 2745, "phone-translate.png");
         act.sheet.showSecurityVpnSheet(act);
         shot(act.root, 1236, 2745, "phone-security-vpn.png");
         act.sheet.showExtensionsSheet(act);

@@ -273,8 +273,10 @@ final class AuroraGlass {
                     canvas.restore();
                 }
             } else {
-                int base = Ui.mix(Ui.bg(), tint | 0xFF000000, 0.55f);
-                fill.setColor(Ui.alpha(base, 0.96f * alpha));
+                // Translucent floating glass fallback when WebView bypasses RenderNode capture (prevents Chromium flicker while preserving floating glass depth)
+                int base = Ui.mix(Ui.bg(), tint | 0xFF000000, Ui.isDarkSurface() ? 0.62f : 0.45f);
+                float fallbackAlpha = Ui.isDarkSurface() ? 0.78f : 0.82f;
+                fill.setColor(Ui.alpha(base, fallbackAlpha * alpha));
                 canvas.drawPath(path, fill);
             }
 
