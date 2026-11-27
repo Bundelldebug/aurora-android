@@ -231,10 +231,14 @@ final class ExtensionManager {
 
         String canonRoot = targetDir.getCanonicalPath() + File.separator;
         int extracted = 0;
+        long totalBytes = 0L;
+        final long MAX_UNPACK_BYTES = 60L * 1024 * 1024;
+        final int MAX_ENTRIES = 1500;
         try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
             ZipEntry ze;
             byte[] buf = new byte[16384];
             while ((ze = zis.getNextEntry()) != null) {
+                if (extracted >= MAX_ENTRIES) throw new Exception("확장 프로그램 파일 수가 허용 한도를 초과했습니다");
                 String name = ze.getName().replace('\\', '/');
                 while (name.startsWith("/")) name = name.substring(1);
                 if (name.isEmpty() || name.contains("..")) continue;
@@ -246,7 +250,11 @@ final class ExtensionManager {
                     if (out.getParentFile() != null) out.getParentFile().mkdirs();
                     try (FileOutputStream fos = new FileOutputStream(out)) {
                         int n;
-                        while ((n = zis.read(buf)) > 0) fos.write(buf, 0, n);
+                        while ((n = zis.read(buf)) > 0) {
+                            totalBytes += n;
+                            if (totalBytes > MAX_UNPACK_BYTES) throw new Exception("확장 프로그램 압축 해제 크기가 한도를 초과했습니다");
+                            fos.write(buf, 0, n);
+                        }
                     }
                     extracted++;
                 }
@@ -388,16 +396,21 @@ final class ExtensionManager {
         } catch (Throwable ignored) {}
     }
 
+    private static final java.util.WeakHashMap<WebView, Bridge> BRIDGES = new java.util.WeakHashMap<>();
+
     /** Injects chrome.* polyfill, matching extension content scripts, and Chrome Web Store install helper. */
     static void injectForPage(Context c, WebView wv, String url, boolean atStart) {
         if (url == null || !url.startsWith("http")) return;
         loadAll(c);
+        Bridge bridge;
+        synchronized (BRIDGES) { bridge = BRIDGES.get(wv); }
 
-        // 1. Chrome Web Store: inject sleek Aurora Install pill when viewing an extension detail page!
-        if (!atStart && isChromeWebStore(url)) {
-            String storeId = extractStoreId(url);
+        // 1. Chrome Web Store: inject sleek Aurora Install pill with per-WebView cryptographic nonce!
+        if (!atStart && isChromeWebStore(url) && bridge != null) {
+            String installNonce = bridge.issueInstallNonce();
             String js = "(function(){"
                     + "if(window.__auroraCwsHook) return; window.__auroraCwsHook=true;"
+                    + "var __cwsNonce=" + JSONObject.quote(installNonce) + ";"
                     + "function syncBtn(){"
                     + "  var m=location.href.match(/(?:chromewebstore\\.google\\.com|chrome\\.google\\.com\\/webstore)\\/detail\\/(?:[^\\/]+\\/)?([a-p]{32})/i);"
                     + "  var old=document.getElementById('aurora-cws-bar');"
@@ -413,7 +426,7 @@ final class ExtensionManager {
                     + "    var btn=document.createElement('button'); btn.id='aurora-cws-go';"
                     + "    btn.style.cssText='background:#0A84FF;color:#fff;border:0;border-radius:999px;padding:7px 14px;font:700 13px sans-serif;cursor:pointer;';"
                     + "    btn.textContent='오로라에 추가';"
-                    + "    btn.onclick=function(){ if(window.AuroraExt) window.AuroraExt.installStoreExtension(btn.dataset.extId); };"
+                    + "    btn.onclick=function(){ if(window.AuroraExt) window.AuroraExt.installStoreExtension(__cwsNonce,btn.dataset.extId); };"
                     + "    old.appendChild(lbl); old.appendChild(btn); document.body.appendChild(old);"
                     + "  }"
                     + "  var b=document.getElementById('aurora-cws-go'); if(b) b.dataset.extId=id;"
@@ -439,9 +452,10 @@ final class ExtensionManager {
                         wv.evaluateJavascript("(function(){var s=document.createElement('style');s.textContent=decodeURIComponent(escape(atob('" + b64 + "')));(document.head||document.documentElement).appendChild(s);})();", null);
                     }
                 }
-                // Inject chrome.* polyfill + JS files
+                // Inject chrome.* polyfill + JS files (isolated token per extension)
                 if (!cs.jsFiles.isEmpty()) {
-                    String polyfill = buildWebExtPolyfill(ext);
+                    String tok = bridge != null ? bridge.issueStorageToken(ext.id) : "";
+                    String polyfill = buildWebExtPolyfill(ext, tok);
                     StringBuilder bundle = new StringBuilder("(function(){\ntry{\n").append(polyfill).append("\n");
                     for (String jsRel : cs.jsFiles) {
                         String code = readTextSafe(new File(ext.dir, jsRel));
@@ -455,24 +469,29 @@ final class ExtensionManager {
     }
 
     static String buildWebExtPolyfill(Ext ext) {
+        return buildWebExtPolyfill(ext, "");
+    }
+
+    static String buildWebExtPolyfill(Ext ext, String storageToken) {
         String mfJson = readTextSafe(new File(ext.dir, "manifest.json"));
         if (mfJson.isEmpty()) mfJson = "{}";
         String mfB64 = Base64.encodeToString(mfJson.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
         JSONObject msgObj = new JSONObject(ext.messages);
         String msgB64 = Base64.encodeToString(msgObj.toString().getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
 
-        return "var __extId='" + ext.id + "';"
+        return "var __extId=" + JSONObject.quote(ext.id) + ";"
+                + "var __extTok=" + JSONObject.quote(storageToken == null ? "" : storageToken) + ";"
                 + "var __mf=JSON.parse(decodeURIComponent(escape(atob('" + mfB64 + "'))));"
                 + "var __msgs=JSON.parse(decodeURIComponent(escape(atob('" + msgB64 + "'))));"
                 + "function __mkStore(area){return {"
-                + "  get:function(keys,cb){var res={};try{var raw=window.AuroraExt?window.AuroraExt.storageGet(__extId,area):'{}';var all=JSON.parse(raw||'{}');"
+                + "  get:function(keys,cb){var res={};try{var raw=window.AuroraExt?window.AuroraExt.storageGet(__extTok,__extId,area):'{}';var all=JSON.parse(raw||'{}');"
                 + "    if(!keys){res=all;}else if(typeof keys==='string'){if(keys in all)res[keys]=all[keys];}"
                 + "    else if(Array.isArray(keys)){keys.forEach(function(k){if(k in all)res[k]=all[k];});}"
                 + "    else{Object.keys(keys).forEach(function(k){res[k]=(k in all)?all[k]:keys[k];});}"
                 + "  }catch(e){} if(cb)cb(res); return Promise.resolve(res);},"
-                + "  set:function(obj,cb){try{if(window.AuroraExt)window.AuroraExt.storageSet(__extId,area,JSON.stringify(obj||{}));}catch(e){} if(cb)cb(); return Promise.resolve();},"
-                + "  remove:function(keys,cb){try{if(window.AuroraExt)window.AuroraExt.storageRemove(__extId,area,JSON.stringify(Array.isArray(keys)?keys:[keys]));}catch(e){} if(cb)cb(); return Promise.resolve();},"
-                + "  clear:function(cb){try{if(window.AuroraExt)window.AuroraExt.storageClear(__extId,area);}catch(e){} if(cb)cb(); return Promise.resolve();}"
+                + "  set:function(obj,cb){try{if(window.AuroraExt)window.AuroraExt.storageSet(__extTok,__extId,area,JSON.stringify(obj||{}));}catch(e){} if(cb)cb(); return Promise.resolve();},"
+                + "  remove:function(keys,cb){try{if(window.AuroraExt)window.AuroraExt.storageRemove(__extTok,__extId,area,JSON.stringify(Array.isArray(keys)?keys:[keys]));}catch(e){} if(cb)cb(); return Promise.resolve();},"
+                + "  clear:function(cb){try{if(window.AuroraExt)window.AuroraExt.storageClear(__extTok,__extId,area);}catch(e){} if(cb)cb(); return Promise.resolve();}"
                 + "};}"
                 + "var chrome=window.chrome||{};"
                 + "chrome.runtime=chrome.runtime||{"
@@ -487,33 +506,78 @@ final class ExtensionManager {
                 + "window.chrome=chrome; window.browser=chrome;";
     }
 
-    /** Native JS interface attached to every WebView as `window.AuroraExt`. */
+    private static String randomNonce() {
+        byte[] b = new byte[16];
+        new java.security.SecureRandom().nextBytes(b);
+        StringBuilder sb = new StringBuilder(32);
+        for (byte x : b) sb.append(String.format(Locale.US, "%02x", x & 0xFF));
+        return sb.toString();
+    }
+
+    /** Hardened native JS interface attached to WebViews as `window.AuroraExt` with cryptographic nonces & strict ID/area validation. */
     static final class Bridge {
         private final Context ctx;
         private final Callback cb;
+        private volatile String installNonce = "";
+        private final Map<String, String> extTokens = new java.util.concurrent.ConcurrentHashMap<>();
 
         interface Callback {
             void onInstallStoreExtension(String extId);
         }
 
         Bridge(Context c, Callback cb) {
+            this(c, null, cb);
+        }
+
+        Bridge(Context c, WebView wv, Callback cb) {
             this.ctx = c.getApplicationContext();
             this.cb = cb;
+            if (wv != null) synchronized (BRIDGES) { BRIDGES.put(wv, this); }
+        }
+
+        String issueInstallNonce() {
+            String n = randomNonce();
+            installNonce = n;
+            return n;
+        }
+
+        String issueStorageToken(String extId) {
+            if (extId == null || !RAW_ID.matcher(extId).matches()) return "";
+            String tok = randomNonce();
+            extTokens.put(extId, tok);
+            return tok;
+        }
+
+        private boolean validStorageCall(String token, String extId, String area) {
+            if (token == null || token.isEmpty() || extId == null || area == null) return false;
+            if (!RAW_ID.matcher(extId).matches()) return false;
+            if (!"local".equals(area) && !"sync".equals(area)) return false;
+            String expected = extTokens.get(extId);
+            return expected != null && java.security.MessageDigest.isEqual(
+                    expected.getBytes(StandardCharsets.UTF_8), token.getBytes(StandardCharsets.UTF_8));
         }
 
         private SharedPreferences storePrefs(String extId, String area) {
             return ctx.getSharedPreferences("aurora_ext_kv_" + extId + "_" + area, Context.MODE_PRIVATE);
         }
 
-        @JavascriptInterface public void installStoreExtension(String extId) {
-            if (cb != null && extId != null) MAIN.post(() -> cb.onInstallStoreExtension(extId));
+        @JavascriptInterface public void installStoreExtension(String nonce, String extId) {
+            if (cb == null || nonce == null || nonce.isEmpty() || extId == null) return;
+            String expected = installNonce;
+            if (expected == null || expected.isEmpty()) return;
+            if (!java.security.MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8), nonce.getBytes(StandardCharsets.UTF_8))) return;
+            String cleanId = extractStoreId(extId);
+            if (cleanId == null) return;
+            MAIN.post(() -> cb.onInstallStoreExtension(cleanId));
         }
 
-        @JavascriptInterface public String storageGet(String extId, String area) {
+        @JavascriptInterface public String storageGet(String token, String extId, String area) {
+            if (!validStorageCall(token, extId, area)) return "{}";
             return storePrefs(extId, area).getString("json", "{}");
         }
 
-        @JavascriptInterface public void storageSet(String extId, String area, String patchJson) {
+        @JavascriptInterface public void storageSet(String token, String extId, String area, String patchJson) {
+            if (!validStorageCall(token, extId, area) || patchJson == null || patchJson.length() > 512 * 1024) return;
             try {
                 SharedPreferences sp = storePrefs(extId, area);
                 JSONObject cur = new JSONObject(sp.getString("json", "{}"));
@@ -527,7 +591,8 @@ final class ExtensionManager {
             } catch (Exception ignored) {}
         }
 
-        @JavascriptInterface public void storageRemove(String extId, String area, String keysJson) {
+        @JavascriptInterface public void storageRemove(String token, String extId, String area, String keysJson) {
+            if (!validStorageCall(token, extId, area) || keysJson == null) return;
             try {
                 SharedPreferences sp = storePrefs(extId, area);
                 JSONObject cur = new JSONObject(sp.getString("json", "{}"));
@@ -537,7 +602,8 @@ final class ExtensionManager {
             } catch (Exception ignored) {}
         }
 
-        @JavascriptInterface public void storageClear(String extId, String area) {
+        @JavascriptInterface public void storageClear(String token, String extId, String area) {
+            if (!validStorageCall(token, extId, area)) return;
             storePrefs(extId, area).edit().putString("json", "{}").apply();
         }
     }
@@ -615,9 +681,21 @@ final class ExtensionManager {
         }
     }
 
+    static boolean isTrustedCwsHost(String url) {
+        if (url == null || !url.startsWith("https://")) return false;
+        try {
+            String host = new URL(url).getHost().toLowerCase(Locale.ROOT);
+            return host.equals("clients2.google.com") || host.endsWith(".googleusercontent.com")
+                    || host.endsWith(".gvt1.com") || host.endsWith(".google.com");
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
     private static HttpURLConnection openRedirected(String raw) throws Exception {
         String cur = raw;
         for (int i = 0; i < 8; i++) {
+            if (!isTrustedCwsHost(cur)) throw new Exception("신뢰할 수 없는 확장 프로그램 다운로드 호스트입니다");
             HttpURLConnection c = (HttpURLConnection) new URL(cur).openConnection();
             c.setInstanceFollowRedirects(false);
             c.setConnectTimeout(15000);

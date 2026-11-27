@@ -58,6 +58,7 @@ final class TabManager {
         default void onDangerousDownload(String fileName, String url, String mimeType, Runnable proceed) { proceed.run(); }
         default void onPageTranslated(Tab tab) {}
         default int floatingBottomBarDp() { return 0; }
+        default void onWebPermissionRequest(String origin, String permLabel, Runnable allow, Runnable deny) { deny.run(); }
     }
 
     static final class Tab {
@@ -333,17 +334,19 @@ final class TabManager {
         String bg = dk ? "#12141A" : "#FAF9F5";
         String fg = dk ? "#E8ECF4" : "#1C1E22";
         String js = "(function(){"
+                + "function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;').replace(/'/g,'&#39;');}"
                 + "var art=document.querySelector('article')||document.querySelector('main')||document.body;"
                 + "var title=document.title||'리더 모드';"
                 + "var ps=Array.from(art.querySelectorAll('h1,h2,h3,p,blockquote,img')).slice(0,180);"
-                + "var body=ps.map(function(el){if(el.tagName==='IMG'&&el.src)return '<img src=\"'+el.src+'\" style=\"max-width:100%;border-radius:12px;margin:14px 0;\">';"
+                + "var body=ps.map(function(el){if(el.tagName==='IMG'&&el.src&&/^https?:\\/\\//i.test(el.src))return '<img src=\"'+esc(el.src)+'\" style=\"max-width:100%;border-radius:12px;margin:14px 0;\">';"
                 + "  var txt=(el.innerText||'').trim(); if(!txt) return '';"
-                + "  return '<'+el.tagName.toLowerCase()+'>'+txt.replace(/</g,'&lt;')+'</'+el.tagName.toLowerCase()+'>';}).join('');"
-                + "if(!body) body='<p>'+(document.body.innerText||'').slice(0,12000).replace(/\\n+/g,'</p><p>')+'</p>';"
-                + "document.documentElement.innerHTML='<head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><style>"
+                + "  var tag=el.tagName.toLowerCase(); if(!/^(h1|h2|h3|p|blockquote)$/.test(tag)) tag='p';"
+                + "  return '<'+tag+'>'+esc(txt)+'</'+tag+'>';}).join('');"
+                + "if(!body) body='<p>'+esc((document.body.innerText||'').slice(0,12000)).replace(/\\n+/g,'</p><p>')+'</p>';"
+                + "document.documentElement.innerHTML='<head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><style>"
                 + "body{background:" + bg + ";color:" + fg + ";font:18px/1.75 -apple-system,sans-serif;max-width:680px;margin:0 auto;padding:28px 20px 120px;}"
                 + "h1{font-size:26px;line-height:1.3;margin-bottom:18px;}h2{font-size:21px;margin-top:24px;}p{margin:0 0 16px;}"
-                + "</style></head><body><h1>'+title.replace(/</g,'&lt;')+'</h1>'+body+'</body>';"
+                + "</style></head><body><h1>'+esc(title)+'</h1>'+body+'</body>';"
                 + "})();";
         t.webView.evaluateJavascript(js, null);
         listener.onPageUpdated(t);
@@ -443,12 +446,16 @@ final class TabManager {
         s.setBuiltInZoomControls(true);
         s.setDisplayZoomControls(false);
         s.setMediaPlaybackRequiresUserGesture(false);
-        s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
+        s.setAllowFileAccess(false);
+        s.setAllowContentAccess(false);
+        s.setAllowFileAccessFromFileURLs(false);
+        s.setAllowUniversalAccessFromFileURLs(false);
+        s.setSaveFormData(false);
+        s.setMixedContentMode(Ui.httpsOnly ? WebSettings.MIXED_CONTENT_NEVER_ALLOW : WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
         s.setUseWideViewPort(true);
         s.setLoadWithOverviewMode(true);
         if (t.isPrivate) {
             s.setCacheMode(WebSettings.LOAD_NO_CACHE);
-            s.setSaveFormData(false);
             s.setGeolocationEnabled(false);
         } else {
             s.setCacheMode(WebSettings.LOAD_DEFAULT);
@@ -460,7 +467,8 @@ final class TabManager {
             cm.setAcceptThirdPartyCookies(wv, !t.isPrivate);
         } catch (Throwable ignored) {}
 
-        wv.addJavascriptInterface(new ExtensionManager.Bridge(ctx, listener::onInstallStoreExtension), "AuroraExt");
+        ExtensionManager.Bridge extBridge = new ExtensionManager.Bridge(ctx, wv, listener::onInstallStoreExtension);
+        wv.addJavascriptInterface(extBridge, "AuroraExt");
         wv.addJavascriptInterface(new PageTranslator.Bridge(wv, () -> {
             t.translated = true;
             listener.onPageTranslated(t);
@@ -516,11 +524,8 @@ final class TabManager {
                     return false;
                 }
                 try {
-                    Intent intent = "intent".equalsIgnoreCase(scheme)
-                            ? Intent.parseUri(u.toString(), Intent.URI_INTENT_SCHEME)
-                            : new Intent(Intent.ACTION_VIEW, u);
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                    ctx.startActivity(intent);
+                    Intent intent = sanitizeExternalIntent(ctx, u);
+                    if (intent != null) ctx.startActivity(intent);
                 } catch (Throwable ignored) {}
                 return true;
             }
@@ -600,7 +605,37 @@ final class TabManager {
             }
 
             @Override public void onPermissionRequest(PermissionRequest request) {
-                try { request.grant(request.getResources()); } catch (Throwable ignored) {}
+                if (request == null || request.getResources() == null) return;
+                Uri origin = request.getOrigin();
+                boolean isHttps = origin != null && "https".equalsIgnoreCase(origin.getScheme());
+                List<String> autoGrant = new ArrayList<>();
+                List<String> askUser = new ArrayList<>();
+                for (String res : request.getResources()) {
+                    if (PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID.equals(res) && isHttps) {
+                        autoGrant.add(res);
+                    } else if ((PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(res)
+                            || PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(res)) && isHttps) {
+                        askUser.add(res);
+                    }
+                }
+                if (!askUser.isEmpty()) {
+                    List<String> combined = new ArrayList<>(autoGrant);
+                    combined.addAll(askUser);
+                    StringBuilder lbl = new StringBuilder();
+                    if (askUser.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)) lbl.append("카메라");
+                    if (askUser.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {
+                        if (lbl.length() > 0) lbl.append(" 및 ");
+                        lbl.append("마이크");
+                    }
+                    String host = origin != null && origin.getHost() != null ? origin.getHost() : "웹사이트";
+                    listener.onWebPermissionRequest(host, lbl.toString(),
+                            () -> { try { request.grant(combined.toArray(new String[0])); } catch (Throwable ignored) {} },
+                            () -> { try { request.deny(); } catch (Throwable ignored) {} });
+                } else if (!autoGrant.isEmpty()) {
+                    try { request.grant(autoGrant.toArray(new String[0])); } catch (Throwable ignored) {}
+                } else {
+                    try { request.deny(); } catch (Throwable ignored) {}
+                }
             }
         });
 
@@ -679,11 +714,50 @@ final class TabManager {
         s.setLoadWithOverviewMode(true);
     }
 
+    /** Hardens intent:// and external scheme launches against component hijacking, URI-grant leaks, and file/content traversal. */
+    static Intent sanitizeExternalIntent(Context ctx, Uri u) {
+        if (u == null) return null;
+        String scheme = u.getScheme();
+        if (scheme == null || scheme.isEmpty()) return null;
+        String low = scheme.toLowerCase(Locale.ROOT);
+        if ("file".equals(low) || "content".equals(low) || "javascript".equals(low)
+                || "data".equals(low) || "vbscript".equals(low) || "android-app".equals(low)) {
+            return null;
+        }
+        try {
+            Intent intent = "intent".equals(low)
+                    ? Intent.parseUri(u.toString(), Intent.URI_INTENT_SCHEME)
+                    : new Intent(Intent.ACTION_VIEW, u);
+            if (intent == null) return null;
+            // Prevent launching unexported private components or piggybacking selector/URI grants
+            intent.setComponent(null);
+            intent.setSelector(null);
+            intent.addCategory(Intent.CATEGORY_BROWSABLE);
+            int badFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION;
+            intent.setFlags((intent.getFlags() & ~badFlags) | Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (ctx != null && ctx.getPackageName().equals(intent.getPackage())) return null;
+            Uri data = intent.getData();
+            if (data != null && data.getScheme() != null) {
+                String ds = data.getScheme().toLowerCase(Locale.ROOT);
+                if ("file".equals(ds) || "content".equals(ds) || "javascript".equals(ds) || "data".equals(ds)) return null;
+            }
+            return intent;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
     private WebResourceResponse serveExtensionResource(Uri uri) {
+        return serveExtensionResourceStatic(ctx, uri);
+    }
+
+    static WebResourceResponse serveExtensionResourceStatic(Context ctx, Uri uri) {
         try {
             List<String> segs = uri.getPathSegments();
             if (segs.size() < 2) return null;
             String extId = segs.get(0);
+            if (ExtensionManager.extractStoreId(extId) == null) return null;
             StringBuilder rel = new StringBuilder();
             for (int i = 1; i < segs.size(); i++) {
                 if (i > 1) rel.append('/');
@@ -691,7 +765,7 @@ final class TabManager {
             }
             File base = new File(ExtensionManager.extRoot(ctx), extId);
             File f = new File(base, rel.toString());
-            if (!f.exists() || !f.getCanonicalPath().startsWith(base.getCanonicalPath())) return null;
+            if (!f.exists() || !f.getCanonicalPath().startsWith(base.getCanonicalPath() + File.separator)) return null;
             String n = f.getName().toLowerCase(Locale.ROOT);
             String mime = n.endsWith(".js") ? "application/javascript"
                     : n.endsWith(".css") ? "text/css"

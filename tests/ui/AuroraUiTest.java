@@ -183,6 +183,28 @@ public class AuroraUiTest {
         String clearanceJs = TabManager.buildFloatingClearanceJs(72);
         assertTrue(clearanceJs.contains("--aurora-bar-h"));
         assertTrue(clearanceJs.contains("ytm-pivot-bar-renderer"));
+
+        // Security hardening checks (9.5.8)
+        assertFalse(WebAppActivity.isSafeWebAppUrl("file:///data/data/com.oneuibook.aurora/shared_prefs/aurora_store.xml"));
+        assertFalse(WebAppActivity.isSafeWebAppUrl("javascript:alert(1)"));
+        assertTrue(WebAppActivity.isSafeWebAppUrl("https://www.google.com/"));
+        assertNull(TabManager.sanitizeExternalIntent(ctx, android.net.Uri.parse("file:///etc/hosts")));
+        assertNull(TabManager.sanitizeExternalIntent(ctx, android.net.Uri.parse("intent://evil#Intent;scheme=file;end")));
+        assertTrue(ExtensionManager.isTrustedCwsHost("https://clients2.google.com/service/update2/crx"));
+        assertFalse(ExtensionManager.isTrustedCwsHost("http://evil.example/a.crx"));
+        assertTrue(Updater.isTrustedReleaseUrl("https://github.com/Bundelldebug/aurora-android/releases/download/v9.5.8/Aurora_Android.apk"));
+        assertFalse(Updater.isTrustedReleaseUrl("https://evil.example/Aurora_Android.apk"));
+
+        // AuroraExt bridge must reject invalid tokens, traversal IDs, and invalid storage areas
+        ExtensionManager.Bridge b = new ExtensionManager.Bridge(ctx, null);
+        String validId = "eimadpbcbfnmbkopoojfekhnkhdbieeh";
+        String tok = b.issueStorageToken(validId);
+        b.storageSet("wrong-token", validId, "local", "{\"k\":\"v\"}");
+        assertEquals("{}", b.storageGet(tok, validId, "local"));
+        b.storageSet(tok, "../../../aurora_store", "local", "{\"k\":\"v\"}");
+        b.storageSet(tok, validId, "local", "{\"k\":\"ok\"}");
+        assertTrue(b.storageGet(tok, validId, "local").contains("ok"));
+        assertEquals("{}", b.storageGet("wrong", validId, "local"));
     }
 
     @Test @Config(qualifiers = "ko-rKR-w412dp-h915dp-xxhdpi")
@@ -190,7 +212,7 @@ public class AuroraUiTest {
         ActivityController<MainActivity> ctrl = Robolectric.buildActivity(MainActivity.class).setup();
         MainActivity act = ctrl.get();
         assertEquals("오로라", act.getString(R.string.app_name));
-        assertEquals("9.5.7", MainActivity.VERSION);
+        assertEquals("9.5.8", MainActivity.VERSION);
         assertEquals(0, Ui.layoutMode);
         // True edge-to-edge WebView behind the floating bottom glass bar + dynamic CSS clearance!
         assertEquals(0, ((android.widget.FrameLayout.LayoutParams) act.webHost.getLayoutParams()).bottomMargin);

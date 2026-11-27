@@ -26,7 +26,7 @@ public final class WebAppActivity extends Activity {
         ExtensionManager.loadAll(this);
 
         String url = getIntent().getStringExtra("url");
-        if (url == null || url.isEmpty()) url = "https://www.google.com";
+        if (!isSafeWebAppUrl(url)) url = "https://www.google.com";
         int themeColor = getIntent().getIntExtra("themeColor", Ui.bg());
 
         Window w = getWindow();
@@ -38,6 +38,12 @@ public final class WebAppActivity extends Activity {
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
+        s.setAllowFileAccess(false);
+        s.setAllowContentAccess(false);
+        s.setAllowFileAccessFromFileURLs(false);
+        s.setAllowUniversalAccessFromFileURLs(false);
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        s.setSaveFormData(false);
         s.setUseWideViewPort(true);
         s.setLoadWithOverviewMode(true);
         s.setMediaPlaybackRequiresUserGesture(false);
@@ -51,19 +57,50 @@ public final class WebAppActivity extends Activity {
 
         webView.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
-                return false;
+                android.net.Uri u = req != null ? req.getUrl() : null;
+                if (u == null) return true;
+                String sch = u.getScheme();
+                return !("https".equalsIgnoreCase(sch) || "http".equalsIgnoreCase(sch));
             }
             @Override public void onPageFinished(WebView view, String u) {
                 ExtensionManager.injectForPage(WebAppActivity.this, view, u, false);
             }
         });
-        webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override public void onPermissionRequest(android.webkit.PermissionRequest request) {
+                if (request == null) return;
+                android.net.Uri org = request.getOrigin();
+                boolean https = org != null && "https".equalsIgnoreCase(org.getScheme());
+                java.util.List<String> ok = new java.util.ArrayList<>();
+                if (https && request.getResources() != null) {
+                    for (String r : request.getResources()) {
+                        if (android.webkit.PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID.equals(r)) ok.add(r);
+                    }
+                }
+                if (ok.isEmpty()) request.deny(); else request.grant(ok.toArray(new String[0]));
+            }
+        });
 
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(themeColor);
         root.addView(webView, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(root);
         webView.loadUrl(url);
+    }
+
+    /** Only permits http/https URLs to prevent exported Activity file:// or javascript: injection. */
+    static boolean isSafeWebAppUrl(String url) {
+        if (url == null) return false;
+        String t = url.trim();
+        if (t.isEmpty()) return false;
+        try {
+            android.net.Uri u = android.net.Uri.parse(t);
+            String sch = u.getScheme();
+            String host = u.getHost();
+            return ("https".equalsIgnoreCase(sch) || "http".equalsIgnoreCase(sch)) && host != null && !host.isEmpty();
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     @Override public void onBackPressed() {

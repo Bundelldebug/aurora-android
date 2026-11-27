@@ -787,6 +787,10 @@ final class GlassSheet extends FrameLayout {
 
     // ---- 6. Reusable Glass Confirmation & Text Input Sheets (Zero stock AlertDialogs) ----
     void showConfirmSheet(String title, String message, String confirmLabel, boolean destructive, Runnable onConfirm) {
+        showConfirmSheet(title, message, confirmLabel, destructive, onConfirm, null);
+    }
+
+    void showConfirmSheet(String title, String message, String confirmLabel, boolean destructive, Runnable onConfirm, Runnable onCancel) {
         content.removeAllViews();
         Context c = getContext();
         content.addView(sheetHeader(c, title, null));
@@ -810,7 +814,10 @@ final class GlassSheet extends FrameLayout {
         TextView cancel = Ui.text(c, "취소", 15f, Ui.regular, Ui.text2());
         cancel.setGravity(Gravity.CENTER);
         cancel.setPadding(0, Ui.dp(13), 0, Ui.dp(13));
-        cancel.setOnClickListener(v -> dismiss());
+        cancel.setOnClickListener(v -> {
+            dismiss();
+            if (onCancel != null) onCancel.run();
+        });
         acts.addView(cancel);
         content.addView(acts);
         showBuilt(null, Icons.SHIELD, null);
@@ -933,12 +940,36 @@ final class GlassSheet extends FrameLayout {
         WebSettings s = pop.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
-        s.setAllowFileAccess(true);
-        pop.addJavascriptInterface(new ExtensionManager.Bridge(c, null), "AuroraExt");
+        s.setAllowFileAccess(false);
+        s.setAllowContentAccess(false);
+        s.setAllowFileAccessFromFileURLs(false);
+        s.setAllowUniversalAccessFromFileURLs(false);
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        ExtensionManager.Bridge bridge = new ExtensionManager.Bridge(c, null);
+        pop.addJavascriptInterface(bridge, "AuroraExt");
+        pop.setWebViewClient(new android.webkit.WebViewClient() {
+            @Override public android.webkit.WebResourceResponse shouldInterceptRequest(WebView view, android.webkit.WebResourceRequest req) {
+                android.net.Uri u = req != null ? req.getUrl() : null;
+                if (u != null && "aurora-ext.local".equals(u.getHost())) {
+                    return TabManager.serveExtensionResourceStatic(c, u);
+                }
+                return null;
+            }
+            @Override public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest req) {
+                android.net.Uri u = req != null ? req.getUrl() : null;
+                return u == null || (!"https".equalsIgnoreCase(u.getScheme()) && !"http".equalsIgnoreCase(u.getScheme()));
+            }
+        });
         File f = new File(ext.dir, ext.popupPath);
-        String html = ExtensionManager.readTextSafe(f);
-        String injected = "<script>" + ExtensionManager.buildWebExtPolyfill(ext) + "</script>" + html;
-        pop.loadDataWithBaseURL("file://" + ext.dir.getAbsolutePath() + "/", injected, "text/html", "UTF-8", null);
+        String html = "";
+        try {
+            if (f.getCanonicalPath().startsWith(ext.dir.getCanonicalPath() + File.separator)) {
+                html = ExtensionManager.readTextSafe(f);
+            }
+        } catch (Throwable ignored) {}
+        String token = bridge.issueStorageToken(ext.id);
+        String injected = "<script>" + ExtensionManager.buildWebExtPolyfill(ext, token) + "</script>" + html;
+        pop.loadDataWithBaseURL("https://aurora-ext.local/" + ext.id + "/", injected, "text/html", "UTF-8", null);
         content.addView(pop, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(340)));
         showBuilt(null, Icons.PUZZLE, null);
     }

@@ -53,7 +53,7 @@ final class Updater {
                         }
                     }
                 }
-                final String dlUrl = url;
+                final String dlUrl = isTrustedReleaseUrl(url) ? url : ("https://github.com/" + REPO + "/releases");
                 if (isNewer(tag, MainActivity.VERSION)) {
                     MAIN.post(() -> new AlertDialog.Builder(a)
                             .setTitle("오로라 " + tag + " 업데이트")
@@ -70,6 +70,24 @@ final class Updater {
                 if (userTriggered) MAIN.post(() -> Toast.makeText(a, "업데이트 확인 실패", Toast.LENGTH_SHORT).show());
             }
         });
+    }
+
+    /** Validates that release download URLs strictly belong to this project's GitHub Releases over HTTPS. */
+    static boolean isTrustedReleaseUrl(String url) {
+        if (url == null || !url.startsWith("https://")) return false;
+        try {
+            Uri u = Uri.parse(url);
+            String host = u.getHost();
+            if (host == null) return false;
+            String h = host.toLowerCase(java.util.Locale.ROOT);
+            if ("github.com".equals(h)) {
+                String p = u.getPath();
+                return p != null && p.toLowerCase(java.util.Locale.ROOT).startsWith("/" + REPO.toLowerCase(java.util.Locale.ROOT) + "/");
+            }
+            return "objects.githubusercontent.com".equals(h) || "release-assets.githubusercontent.com".equals(h);
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     static boolean isNewer(String remote, String local) {

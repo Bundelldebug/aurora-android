@@ -37,7 +37,7 @@ import java.util.Locale;
  * - Chrome Web Store CRX3 extensions, PWA installation, and Cloud Sync
  */
 public final class MainActivity extends Activity implements TabManager.Listener, SafariBar.Listener {
-    static final String VERSION = "9.5.7";
+    static final String VERSION = "9.5.8";
     private static final int REQ_FILE_CHOOSER = 7001, REQ_SYNC_CREATE = 7002, REQ_SYNC_OPEN = 7003, REQ_START_BG = 7004;
 
     FrameLayout root;
@@ -458,6 +458,12 @@ public final class MainActivity extends Activity implements TabManager.Listener,
         sheet.showConfirmSheet("실행 파일 다운로드 주의",
                 "'" + fileName + "'은(는) 기기 보안에 영향을 줄 수 있는 형식입니다. 신뢰할 수 있는 출처인 경우에만 다운로드하세요.",
                 "계속 다운로드", true, proceed);
+    }
+
+    @Override public void onWebPermissionRequest(String origin, String permLabel, Runnable allow, Runnable deny) {
+        sheet.showConfirmSheet("권한 요청",
+                origin + " 사이트에서 " + permLabel + " 접근 권한을 요청했습니다. 허용하시겠습니까?",
+                "허용", false, allow, deny);
     }
 
     @Override public void onProgress(TabManager.Tab tab, int progress) {
