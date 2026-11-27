@@ -259,13 +259,18 @@ final class GlassSheet extends FrameLayout {
 
         if (!cur.isEmpty() && cur.width() > 2f && cur.height() > 2f) {
             float rad = Math.min(blobRadius, Math.min(cur.width(), cur.height()) / 2f);
+            // Exact Prism GlassMenu continuous optical material blend
             glass.tint = Ui.mix(Ui.barTint(), Ui.sheetTint(), v);
             glass.strokeColor = Ui.glassStroke();
-            glass.blurDp = Ui.lerp(8f, 16f, v);
-            glass.refractDp = Ui.lerp(15f, 14f, v);
-            glass.edgeDp = Ui.lerp(22f, 26f, v);
-            glass.chroma = Ui.lerp(0.32f, 0.22f, v);
-            glass.fresnelAmt = 0.58f;
+            glass.blurDp = Ui.barBlur();
+            glass.refractDp = Ui.lerp(15f, 17f, v);
+            glass.edgeDp = Ui.lerp(20f, 26f, v);
+            glass.outerDp = Ui.lerp(5f, 7f, v);
+            glass.outerRefractDp = Ui.lerp(11f, 12f, v);
+            glass.rim = Ui.lerp(0.32f, 0.40f, v);
+            glass.shadowAlpha = Ui.lerp(0.07f, 0.22f, v);
+            glass.chroma = 0f;
+            glass.vibrance = 1.35f;
             glass.alpha = hasAnchor ? 1f : Ui.clamp(v * 2.5f, 0f, 1f);
             glass.shapes(cur, rad, null, 0, null, 0);
             glass.draw(c, this, backdrop);
@@ -397,11 +402,25 @@ final class GlassSheet extends FrameLayout {
         showBuilt(fromAnchor, iconId, restoreSource);
     }
 
-    // ---- 2. Google Translate Sheet ----
+    // ---- 2. Google Translate Sheet (Manual + Auto-Translate) ----
     void showTranslateSheet(MainActivity act) {
         content.removeAllViews();
         Context c = getContext();
         content.addView(sheetHeader(c, "웹페이지 번역", "Google 번역"));
+
+        LinearLayout autoGrp = groupBox(c);
+        autoGrp.addView(toggleRow(c, "외국어 페이지 자동 번역", Ui.autoTranslate, on -> {
+            Ui.autoTranslate = on;
+            Ui.savePrefs(c);
+            if (on) {
+                TabManager.Tab t = act.tabs.activeTab();
+                if (t != null && t.webView != null && !t.isStartPage() && !t.translated) {
+                    PageTranslator.autoTranslateIfForeign(t.webView, Ui.translateLang);
+                }
+            }
+        }));
+        content.addView(autoGrp);
+        content.addView(spacer(c, 10));
 
         LinearLayout grp = groupBox(c);
         for (int i = 0; i < PageTranslator.LANG_CODES.length; i++) {
@@ -429,6 +448,97 @@ final class GlassSheet extends FrameLayout {
             content.addView(resetGrp);
         }
         showBuilt(null, Icons.TRANSLATE, null);
+    }
+
+    // ---- 2b. Start Page Customization Sheet (Background Image & Sections) ----
+    void showStartPageEditSheet(MainActivity act) {
+        content.removeAllViews();
+        Context c = getContext();
+        content.addView(sheetHeader(c, "시작 페이지 사용자화", "배경 및 표시 섹션"));
+
+        LinearLayout bgGrp = groupBox(c);
+        bgGrp.addView(iosMenuRow(c, "사진에서 배경 선택", Icons.PLUS, StartPageView.hasCustomBg(c) ? "사용자 지정" : null, v -> {
+            dismiss();
+            act.pickStartPageWallpaper();
+        }));
+        if (StartPageView.hasCustomBg(c)) {
+            bgGrp.addView(div(c));
+            bgGrp.addView(iosMenuRow(c, "사용자 사진 배경 제거", Icons.CLOSE, null, v -> {
+                StartPageView.clearCustomBg(c);
+                act.startPage.reloadBackground(c);
+                act.startPage.rebuild();
+                showStartPageEditSheet(act);
+            }));
+        }
+        bgGrp.addView(div(c));
+
+        // 6 Curated gradient wallpaper swatches
+        int curIdx = Ui.prefs(c).getInt("wallpaper_idx", 0);
+        boolean usingPhoto = StartPageView.hasCustomBg(c);
+        android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(c);
+        hs.setHorizontalScrollBarEnabled(false);
+        LinearLayout swRow = new LinearLayout(c);
+        swRow.setOrientation(LinearLayout.HORIZONTAL);
+        swRow.setPadding(Ui.dp(14), Ui.dp(12), Ui.dp(14), Ui.dp(12));
+        for (int i = 0; i < StartPageView.WALLPAPER_NAMES.length; i++) {
+            final int idx = i;
+            boolean sel = !usingPhoto && curIdx == i;
+            LinearLayout cell = new LinearLayout(c);
+            cell.setOrientation(LinearLayout.VERTICAL);
+            cell.setGravity(Gravity.CENTER_HORIZONTAL);
+
+            View swatch = new View(c);
+            int[] pal = Ui.dark ? StartPageView.DARK_PALETTES[i] : StartPageView.LIGHT_PALETTES[i];
+            android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable(
+                    android.graphics.drawable.GradientDrawable.Orientation.TL_BR, pal);
+            gd.setCornerRadius(Ui.dpf(14));
+            gd.setStroke(Ui.dp(sel ? 2.4f : 0.8f), sel ? Ui.activeAccent() : Ui.glassStroke());
+            swatch.setBackground(gd);
+            cell.addView(swatch, new LinearLayout.LayoutParams(Ui.dp(54), Ui.dp(72)));
+
+            TextView lbl = Ui.text(c, StartPageView.WALLPAPER_NAMES[i], 11f, sel ? Ui.semibold : Ui.regular, sel ? Ui.activeAccent() : Ui.text2());
+            lbl.setPadding(0, Ui.dp(5), 0, 0);
+            cell.addView(lbl);
+
+            cell.setOnClickListener(v -> {
+                StartPageView.clearCustomBg(c);
+                Ui.prefs(c).edit().putInt("wallpaper_idx", idx).apply();
+                act.startPage.reloadBackground(c);
+                act.startPage.rebuild();
+                showStartPageEditSheet(act);
+            });
+            Ui.press(cell, 0.94f);
+            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            if (i > 0) clp.leftMargin = Ui.dp(10);
+            swRow.addView(cell, clp);
+        }
+        hs.addView(swRow);
+        bgGrp.addView(hs);
+        content.addView(bgGrp);
+        content.addView(spacer(c, 10));
+
+        LinearLayout secGrp = groupBox(c);
+        secGrp.addView(toggleRow(c, "즐겨찾기", Ui.prefs(c).getBoolean("sp_favorites", true), on -> {
+            Ui.prefs(c).edit().putBoolean("sp_favorites", on).apply();
+            act.startPage.rebuild();
+        }));
+        secGrp.addView(div(c));
+        secGrp.addView(toggleRow(c, "자주 방문한 사이트", Ui.prefs(c).getBoolean("sp_frequent", true), on -> {
+            Ui.prefs(c).edit().putBoolean("sp_frequent", on).apply();
+            act.startPage.rebuild();
+        }));
+        secGrp.addView(div(c));
+        secGrp.addView(toggleRow(c, "개인정보 보호 리포트", Ui.prefs(c).getBoolean("sp_privacy", true), on -> {
+            Ui.prefs(c).edit().putBoolean("sp_privacy", on).apply();
+            act.startPage.rebuild();
+        }));
+        secGrp.addView(div(c));
+        secGrp.addView(toggleRow(c, "읽기 목록", Ui.prefs(c).getBoolean("sp_reading", true), on -> {
+            Ui.prefs(c).edit().putBoolean("sp_reading", on).apply();
+            act.startPage.rebuild();
+        }));
+        content.addView(secGrp);
+        showBuilt(null, Icons.EDIT, null);
     }
 
     // ---- 3. Security Shield & Per-Site VPN (NordVPN default) Sheet ----
@@ -869,6 +979,13 @@ final class GlassSheet extends FrameLayout {
         }));
         grp.addView(div(c));
         grp.addView(iosMenuRow(c, "번역 언어 (Google)", Icons.TRANSLATE, PageTranslator.labelFor(Ui.translateLang), v -> showTranslateSheet(act)));
+        grp.addView(div(c));
+        grp.addView(toggleRow(c, "외국어 페이지 자동 번역", Ui.autoTranslate, on -> {
+            Ui.autoTranslate = on;
+            Ui.savePrefs(c);
+        }));
+        grp.addView(div(c));
+        grp.addView(iosMenuRow(c, "시작 페이지 배경 및 메뉴", Icons.EDIT, StartPageView.hasCustomBg(c) ? "사용자 사진" : "기본", v -> showStartPageEditSheet(act)));
         grp.addView(div(c));
         grp.addView(iosMenuRow(c, "보안 및 VPN", Icons.VPN, SecurityGuard.vpnLabel(Ui.vpnProvider), v -> showSecurityVpnSheet(act)));
         grp.addView(div(c));

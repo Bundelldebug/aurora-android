@@ -231,12 +231,24 @@ final class TabOverviewView extends FrameLayout {
             tp.setTypeface(Ui.semibold);
             tp.setTextAlign(Paint.Align.CENTER);
             tp.setTextSize(Ui.sp(13f));
+            barGlass.blurDp = Ui.barBlur();
+            barGlass.refractDp = 17f;
+            barGlass.edgeDp = 26f;
+            barGlass.outerDp = 7f;
+            barGlass.outerRefractDp = 12f;
+            barGlass.chroma = 0f;
+            barGlass.vibrance = 1.35f;
+            barGlass.rim = 0.32f;
+            barGlass.edgeDark = 0.32f;
+            barGlass.shadowAlpha = 0.16f;
             lensGlass.blur = false;
-            lensGlass.refractDp = 16f;
-            lensGlass.edgeDp = 22f;
+            lensGlass.refractDp = 22f;
+            lensGlass.edgeDp = 28f;
+            lensGlass.outerDp = 8f;
+            lensGlass.outerRefractDp = 14f;
             lensGlass.chroma = 0.9f;
-            lensGlass.depthEffect = 0.65f;
-            lensGlass.rim = 0.55f;
+            lensGlass.rim = 0.6f;
+            lensGlass.shadowAlpha = 0.16f;
             segPos.onUpdate = this::invalidate;
             segLift.onUpdate = this::invalidate;
         }
@@ -263,6 +275,7 @@ final class TabOverviewView extends FrameLayout {
         @Override protected void onDraw(Canvas c) {
             if (getWidth() <= 0) return;
             layoutBar();
+            barGlass.blurDp = Ui.barBlur();
             barGlass.tint = Ui.barTint();
             barGlass.strokeColor = Ui.glassStroke();
             barGlass.shapes(segRect, segRect.height() / 2f, addRect, addRect.height() / 2f, doneRect, doneRect.height() / 2f);
@@ -281,11 +294,11 @@ final class TabOverviewView extends FrameLayout {
                 try { drawSegLabels(rc, Ui.activeAccent(), Ui.activeAccent()); } finally { activeNode.endRecording(); }
                 lensGlass.extra = activeNode;
                 lensGlass.shapes(lensRect, lensRect.height() / 2f, null, 0, null, 0);
-                lensGlass.mag = Ui.lerp(1f, 1.18f, l);
+                lensGlass.mag = 1f + 0.14f * l;
                 lensGlass.magX = lensRect.centerX();
                 lensGlass.magY = lensRect.centerY();
-                lensGlass.innerShadow = l;
-                lensGlass.tint = Ui.isDarkSurface() ? 0x16FFFFFF : 0x12FFFFFF;
+                lensGlass.tint = Ui.isDarkSurface() ? 0x0FFFFFFF : 0x0AFFFFFF;
+                lensGlass.strokeColor = Ui.isDarkSurface() ? 0x40FFFFFF : 0x1A000000;
                 drawSegLabels(c, Ui.text2(), Ui.text2());
                 lensGlass.draw(c, this, backdrop);
             } else {

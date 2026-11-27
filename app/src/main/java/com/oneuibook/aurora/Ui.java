@@ -36,8 +36,9 @@ final class Ui {
     static boolean httpsOnly = true;
     static String vpnProvider = "nordvpn";
     static String translateLang = "ko";
-    static boolean liquidGlass = true; // true = Tri-Engine Liquid Glass, false = Frost Blur
-    static float glassTransparency = 0.52f;
+    static boolean autoTranslate = false;
+    static boolean liquidGlass = true; // true = Prism-unified Liquid Glass, false = Frost Blur
+    static float glassTransparency = 0.5f; // matches Prism Ui.glassT default (0.5f)
     static boolean desktopDefault = false;
     static int accent = 0xFF0A84FF; // iOS 26 Safari vibrant sapphire-cyan accent
     static int screenW = 1080, screenH = 2400;
@@ -71,8 +72,9 @@ final class Ui {
         httpsOnly = p.getBoolean("https_only", true);
         vpnProvider = p.getString("vpn_provider", "nordvpn");
         translateLang = p.getString("translate_lang", "ko");
+        autoTranslate = p.getBoolean("auto_translate", false);
         liquidGlass = p.getBoolean("liquid_glass", true);
-        glassTransparency = p.getFloat("glass_t", 0.52f);
+        glassTransparency = p.getFloat("glass_t", 0.5f);
         desktopDefault = p.getBoolean("desktop_default", false);
         accent = p.getInt("accent", 0xFF0A84FF);
     }
@@ -89,6 +91,7 @@ final class Ui {
                 .putBoolean("https_only", httpsOnly)
                 .putString("vpn_provider", vpnProvider)
                 .putString("translate_lang", translateLang)
+                .putBoolean("auto_translate", autoTranslate)
                 .putBoolean("liquid_glass", liquidGlass)
                 .putFloat("glass_t", glassTransparency)
                 .putBoolean("desktop_default", desktopDefault)
@@ -146,21 +149,35 @@ final class Ui {
         return privateTheme ? 0xFFA78BFA : accent;
     }
 
+    static int glassBlend(int opaque, int medium, int high) {
+        float t = clamp(glassTransparency, 0f, 1f);
+        return t >= 0.5f ? mix(medium, high, (t - 0.5f) * 2f) : mix(opaque, medium, t * 2f);
+    }
+
+    /** Exact Prism barTint() optical blend curve. */
     static int barTint() {
-        int a = Math.round(lerp(0xB8, 0x42, clamp(glassTransparency, 0f, 1f)));
-        if (privateTheme) return (Math.max(a, 0x8A) << 24) | 0x1E1F2A;
-        return dark ? ((a << 24) | 0x1C1E26) : ((a << 24) | 0xFCFDFF);
+        if (privateTheme) return glassBlend(0xFF1E1F2A, 0xA61E1F2A, 0x521E1F2A);
+        return dark ? glassBlend(0xFF1C1C1E, 0xA61C1C1E, 0x521C1C1E)
+                : glassBlend(0xFFFAFAFC, 0xA8FAFAFC, 0x40FFFFFF);
     }
 
+    /** Exact Prism barBlur() optical blur curve (6dp at 0.5 -> 2dp at 1.0). */
+    static float barBlur() {
+        float t = clamp(glassTransparency, 0f, 1f);
+        return t >= 0.5f ? lerp(6f, 2f, (t - 0.5f) * 2f) : 6f;
+    }
+
+    /** Exact Prism menuTint() optical blend curve. */
     static int sheetTint() {
-        int a = Math.round(lerp(0xE8, 0xB8, clamp(glassTransparency, 0f, 1f)));
-        if (privateTheme) return (a << 24) | 0x1C1D27;
-        return dark ? ((a << 24) | 0x181B23) : ((a << 24) | 0xFAFCFF);
+        if (privateTheme) return glassBlend(0xF51C1D27, 0xB81C1D27, 0x8C1C1D27);
+        return dark ? glassBlend(0xF51C1C1E, 0xB81C1C1E, 0x8C1C1C1E)
+                : glassBlend(0xF5FAFAFC, 0xBDFAFAFC, 0x8CFAFAFC);
     }
 
+    /** Exact Prism glassStroke() values. */
     static int glassStroke() {
         if (privateTheme) return 0x38C4B5FD;
-        return dark ? 0x30FFFFFF : 0x20000000;
+        return dark ? 0x33FFFFFF : 0x24000000;
     }
 
     static int alpha(int color, float factor) {

@@ -122,27 +122,36 @@ final class SafariBar extends FrameLayout {
         chipPaint.setTypeface(Ui.medium);
         chipPaint.setTextSize(Ui.sp(12f));
 
-        mainGlass.blurDp = 8f;
-        mainGlass.refractDp = 16f;
-        mainGlass.edgeDp = 24f;
-        mainGlass.outerDp = 6.5f;
-        mainGlass.outerRefractDp = 11f;
-        mainGlass.chroma = 0.34f;
-        mainGlass.rim = 0.38f;
-        mainGlass.fresnelAmt = 0.56f;
+        // Exact Prism Dock barGlass optical constants
+        mainGlass.blurDp = Ui.barBlur();
+        mainGlass.refractDp = 17f;
+        mainGlass.edgeDp = 26f;
+        mainGlass.outerDp = 7f;
+        mainGlass.outerRefractDp = 12f;
+        mainGlass.chroma = 0f;
+        mainGlass.vibrance = 1.35f;
+        mainGlass.rim = 0.32f;
+        mainGlass.edgeDark = 0.32f;
+        mainGlass.shadowAlpha = 0.16f;
 
-        auxGlass.blurDp = 8f;
-        auxGlass.refractDp = 15f;
-        auxGlass.edgeDp = 22f;
-        auxGlass.outerDp = 6f;
-        auxGlass.outerRefractDp = 10f;
-        auxGlass.chroma = 0.28f;
-        auxGlass.rim = 0.36f;
+        auxGlass.blurDp = Ui.barBlur();
+        auxGlass.refractDp = 17f;
+        auxGlass.edgeDp = 26f;
+        auxGlass.outerDp = 7f;
+        auxGlass.outerRefractDp = 12f;
+        auxGlass.chroma = 0f;
+        auxGlass.vibrance = 1.35f;
+        auxGlass.rim = 0.32f;
+        auxGlass.edgeDark = 0.32f;
+        auxGlass.shadowAlpha = 0.16f;
 
-        stripGlass.blurDp = 8f;
-        stripGlass.refractDp = 12f;
-        stripGlass.edgeDp = 18f;
-        stripGlass.chroma = 0.20f;
+        stripGlass.blurDp = Ui.barBlur();
+        stripGlass.refractDp = 15f;
+        stripGlass.edgeDp = 20f;
+        stripGlass.outerDp = 5f;
+        stripGlass.outerRefractDp = 11f;
+        stripGlass.chroma = 0f;
+        stripGlass.vibrance = 1.35f;
         stripGlass.rim = 0.32f;
 
         Runnable inv = () -> { placeField(); invalidate(); };
@@ -199,6 +208,14 @@ final class SafariBar extends FrameLayout {
         if (isWideLayout()) return base + Ui.dp(100);
         if (Ui.layoutMode == 2) return base + Ui.dp(62);
         return base;
+    }
+
+    /** Bottom clearance so fixed-bottom webpage UI (YouTube mobile tabs, etc.) NEVER overlaps Aurora's floating bottom bar. */
+    int bottomContentInsetPx() {
+        if (isWideLayout()) return Ui.navInset;
+        if (Ui.layoutMode == 1) return Ui.navInset + Ui.dp(108); // Classic Bottom (pill + 5-icon bar)
+        if (Ui.layoutMode == 2) return Ui.navInset + Ui.dp(64);  // Top address bar + bottom 5-icon bar
+        return Ui.navInset + Ui.dp(66);                          // Compact (50dp pill + 12dp bottom + 4dp gap)
     }
 
     void setMoreHidden(boolean hidden) {
@@ -461,6 +478,7 @@ final class SafariBar extends FrameLayout {
         // 1. Wide iPadOS 26 Safari Bar + Live Tab Strip
         if (isWideLayout()) {
             mainGlass.tint = Ui.barTint();
+            mainGlass.blurDp = Ui.barBlur();
             mainGlass.strokeColor = Ui.glassStroke();
             mainGlass.pressX = touchX; mainGlass.pressY = touchY;
             mainGlass.pressR = Ui.dpf(54);
@@ -499,6 +517,7 @@ final class SafariBar extends FrameLayout {
 
         // 2. Phone Primary floating glass shapes
         mainGlass.tint = Ui.barTint();
+        mainGlass.blurDp = Ui.barBlur();
         mainGlass.strokeColor = Ui.glassStroke();
         mainGlass.pressX = touchX; mainGlass.pressY = touchY;
         mainGlass.pressR = Ui.dpf(54);
@@ -519,6 +538,7 @@ final class SafariBar extends FrameLayout {
         // 3. Secondary floating glass toolbar (Bottom Classic / Top modes)
         if (!bottomToolbar.isEmpty() && bottomToolbar.top < getHeight()) {
             auxGlass.tint = Ui.barTint();
+            auxGlass.blurDp = Ui.barBlur();
             auxGlass.strokeColor = Ui.glassStroke();
             auxGlass.shapes(bottomToolbar, bottomToolbar.height() / 2f, null, 0, null, 0);
             auxGlass.alpha = 1f - k;

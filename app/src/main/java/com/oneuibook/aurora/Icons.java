@@ -31,97 +31,113 @@ final class Icons {
         P.setStyle(Paint.Style.STROKE);
         P.setStrokeCap(Paint.Cap.ROUND);
         P.setStrokeJoin(Paint.Join.ROUND);
-        P.setStrokeWidth(Math.max(1.8f, size * 0.086f));
-        float r = size * 0.40f;
+        // Authentic Apple Safari SF-Symbols optical stroke weight
+        P.setStrokeWidth(Math.max(1.6f, size * 0.078f));
+        float r = size * 0.42f;
 
         switch (id) {
             case BACK:
+                // SF Symbols chevron.backward
                 PATH.reset();
-                PATH.moveTo(cx + r * 0.28f, cy - r * 0.72f);
-                PATH.lineTo(cx - r * 0.44f, cy);
-                PATH.lineTo(cx + r * 0.28f, cy + r * 0.72f);
+                PATH.moveTo(cx + r * 0.24f, cy - r * 0.70f);
+                PATH.lineTo(cx - r * 0.42f, cy);
+                PATH.lineTo(cx + r * 0.24f, cy + r * 0.70f);
                 c.drawPath(PATH, P);
                 break;
             case FORWARD:
+                // SF Symbols chevron.forward
                 PATH.reset();
-                PATH.moveTo(cx - r * 0.28f, cy - r * 0.72f);
-                PATH.lineTo(cx + r * 0.44f, cy);
-                PATH.lineTo(cx - r * 0.28f, cy + r * 0.72f);
+                PATH.moveTo(cx - r * 0.24f, cy - r * 0.70f);
+                PATH.lineTo(cx + r * 0.42f, cy);
+                PATH.lineTo(cx - r * 0.24f, cy + r * 0.70f);
                 c.drawPath(PATH, P);
                 break;
             case MORE:
+                // SF Symbols ellipsis (crisp Safari spacing)
                 P.setStyle(Paint.Style.FILL);
-                float dr = size * 0.084f;
-                c.drawCircle(cx - r * 0.68f, cy, dr, P);
+                float dr = size * 0.076f;
+                c.drawCircle(cx - r * 0.64f, cy, dr, P);
                 c.drawCircle(cx, cy, dr, P);
-                c.drawCircle(cx + r * 0.68f, cy, dr, P);
+                c.drawCircle(cx + r * 0.64f, cy, dr, P);
                 break;
             case RELOAD:
-                RF.set(cx - r * 0.76f, cy - r * 0.76f, cx + r * 0.76f, cy + r * 0.76f);
-                c.drawArc(RF, -50, 290, false, P);
-                float ax = cx + r * 0.54f, ay = cy - r * 0.60f;
+                // SF Symbols arrow.clockwise
+                RF.set(cx - r * 0.68f, cy - r * 0.68f, cx + r * 0.68f, cy + r * 0.68f);
+                c.drawArc(RF, -42, 298, false, P);
+                float ax = cx + r * 0.50f, ay = cy - r * 0.46f;
                 PATH.reset();
                 PATH.moveTo(ax - r * 0.34f, ay - r * 0.02f);
-                PATH.lineTo(ax + r * 0.06f, ay + r * 0.08f);
-                PATH.lineTo(ax - r * 0.02f, ay - r * 0.34f);
+                PATH.lineTo(ax + r * 0.05f, ay + r * 0.04f);
+                PATH.lineTo(ax + r * 0.01f, ay - r * 0.35f);
                 c.drawPath(PATH, P);
                 break;
             case CLOSE:
-                c.drawLine(cx - r * 0.56f, cy - r * 0.56f, cx + r * 0.56f, cy + r * 0.56f, P);
-                c.drawLine(cx + r * 0.56f, cy - r * 0.56f, cx - r * 0.56f, cy + r * 0.56f, P);
+                c.drawLine(cx - r * 0.52f, cy - r * 0.52f, cx + r * 0.52f, cy + r * 0.52f, P);
+                c.drawLine(cx + r * 0.52f, cy - r * 0.52f, cx - r * 0.52f, cy + r * 0.52f, P);
                 break;
             case TABS:
-                RF.set(cx - r * 0.76f, cy - r * 0.40f, cx + r * 0.34f, cy + r * 0.72f);
-                c.drawRoundRect(RF, r * 0.24f, r * 0.24f, P);
+                // SF Symbols square.on.square (Safari Tabs icon)
+                RF.set(cx - r * 0.72f, cy - r * 0.34f, cx + r * 0.34f, cy + r * 0.72f);
+                c.drawRoundRect(RF, r * 0.22f, r * 0.22f, P);
                 PATH.reset();
-                PATH.moveTo(cx - r * 0.30f, cy - r * 0.76f);
-                PATH.lineTo(cx + r * 0.56f, cy - r * 0.76f);
-                PATH.quadTo(cx + r * 0.78f, cy - r * 0.76f, cx + r * 0.78f, cy - r * 0.52f);
-                PATH.lineTo(cx + r * 0.78f, cy + r * 0.32f);
+                PATH.moveTo(cx - r * 0.34f, cy - r * 0.56f);
+                PATH.quadTo(cx - r * 0.34f, cy - r * 0.72f, cx - r * 0.16f, cy - r * 0.72f);
+                PATH.lineTo(cx + r * 0.54f, cy - r * 0.72f);
+                PATH.quadTo(cx + r * 0.72f, cy - r * 0.72f, cx + r * 0.72f, cy - r * 0.54f);
+                PATH.lineTo(cx + r * 0.72f, cy + r * 0.16f);
+                PATH.quadTo(cx + r * 0.72f, cy + r * 0.34f, cx + r * 0.54f, cy + r * 0.34f);
                 c.drawPath(PATH, P);
                 break;
             case SHARE:
-                c.drawLine(cx, cy + r * 0.20f, cx, cy - r * 0.78f, P);
+                // SF Symbols square.and.arrow.up (authentic iOS Safari Share icon)
+                c.drawLine(cx, cy + r * 0.16f, cx, cy - r * 0.78f, P);
                 PATH.reset();
-                PATH.moveTo(cx - r * 0.40f, cy - r * 0.38f);
-                PATH.lineTo(cx, cy - r * 0.80f);
-                PATH.lineTo(cx + r * 0.40f, cy - r * 0.38f);
+                PATH.moveTo(cx - r * 0.34f, cy - r * 0.44f);
+                PATH.lineTo(cx, cy - r * 0.78f);
+                PATH.lineTo(cx + r * 0.34f, cy - r * 0.44f);
                 c.drawPath(PATH, P);
                 PATH.reset();
-                PATH.moveTo(cx - r * 0.44f, cy - r * 0.14f);
-                PATH.lineTo(cx - r * 0.70f, cy - r * 0.14f);
-                PATH.lineTo(cx - r * 0.70f, cy + r * 0.78f);
-                PATH.lineTo(cx + r * 0.70f, cy + r * 0.78f);
-                PATH.lineTo(cx + r * 0.70f, cy - r * 0.14f);
-                PATH.lineTo(cx + r * 0.44f, cy - r * 0.14f);
+                PATH.moveTo(cx - r * 0.34f, cy - r * 0.18f);
+                PATH.lineTo(cx - r * 0.52f, cy - r * 0.18f);
+                PATH.quadTo(cx - r * 0.68f, cy - r * 0.18f, cx - r * 0.68f, cy - r * 0.02f);
+                PATH.lineTo(cx - r * 0.68f, cy + r * 0.62f);
+                PATH.quadTo(cx - r * 0.68f, cy + r * 0.78f, cx - r * 0.52f, cy + r * 0.78f);
+                PATH.lineTo(cx + r * 0.52f, cy + r * 0.78f);
+                PATH.quadTo(cx + r * 0.68f, cy + r * 0.78f, cx + r * 0.68f, cy + r * 0.62f);
+                PATH.lineTo(cx + r * 0.68f, cy - r * 0.02f);
+                PATH.quadTo(cx + r * 0.68f, cy - r * 0.18f, cx + r * 0.52f, cy - r * 0.18f);
+                PATH.lineTo(cx + r * 0.34f, cy - r * 0.18f);
                 c.drawPath(PATH, P);
                 break;
             case BOOKMARK:
+                // SF Symbols book (authentic Safari open book icon)
                 PATH.reset();
-                PATH.moveTo(cx, cy - r * 0.56f);
-                PATH.quadTo(cx - r * 0.44f, cy - r * 0.74f, cx - r * 0.82f, cy - r * 0.52f);
-                PATH.lineTo(cx - r * 0.82f, cy + r * 0.62f);
-                PATH.quadTo(cx - r * 0.44f, cy + r * 0.40f, cx, cy + r * 0.64f);
-                PATH.quadTo(cx + r * 0.44f, cy + r * 0.40f, cx + r * 0.82f, cy + r * 0.62f);
-                PATH.lineTo(cx + r * 0.82f, cy - r * 0.52f);
-                PATH.quadTo(cx + r * 0.44f, cy - r * 0.74f, cx, cy - r * 0.56f);
-                PATH.moveTo(cx, cy - r * 0.56f);
-                PATH.lineTo(cx, cy + r * 0.64f);
+                PATH.moveTo(cx, cy - r * 0.46f);
+                PATH.cubicTo(cx - r * 0.24f, cy - r * 0.68f, cx - r * 0.58f, cy - r * 0.68f, cx - r * 0.78f, cy - r * 0.54f);
+                PATH.lineTo(cx - r * 0.78f, cy + r * 0.54f);
+                PATH.cubicTo(cx - r * 0.56f, cy + r * 0.42f, cx - r * 0.22f, cy + r * 0.42f, cx, cy + r * 0.62f);
+                PATH.cubicTo(cx + r * 0.22f, cy + r * 0.42f, cx + r * 0.56f, cy + r * 0.42f, cx + r * 0.78f, cy + r * 0.54f);
+                PATH.lineTo(cx + r * 0.78f, cy - r * 0.54f);
+                PATH.cubicTo(cx + r * 0.58f, cy - r * 0.68f, cx + r * 0.24f, cy - r * 0.68f, cx, cy - r * 0.46f);
+                PATH.moveTo(cx, cy - r * 0.46f);
+                PATH.lineTo(cx, cy + r * 0.62f);
                 c.drawPath(PATH, P);
                 break;
             case PLUS:
-                c.drawLine(cx - r * 0.66f, cy, cx + r * 0.66f, cy, P);
-                c.drawLine(cx, cy - r * 0.66f, cx, cy + r * 0.66f, P);
+                c.drawLine(cx - r * 0.62f, cy, cx + r * 0.62f, cy, P);
+                c.drawLine(cx, cy - r * 0.62f, cx, cy + r * 0.62f, P);
                 break;
             case SEARCH:
-                c.drawCircle(cx - r * 0.16f, cy - r * 0.16f, r * 0.54f, P);
-                c.drawLine(cx + r * 0.24f, cy + r * 0.24f, cx + r * 0.72f, cy + r * 0.72f, P);
+                // SF Symbols magnifyingglass
+                c.drawCircle(cx - r * 0.14f, cy - r * 0.14f, r * 0.52f, P);
+                c.drawLine(cx + r * 0.24f, cy + r * 0.24f, cx + r * 0.70f, cy + r * 0.70f, P);
                 break;
             case PAGE_MENU:
-                RF.set(cx - r * 0.72f, cy - r * 0.70f, cx + r * 0.72f, cy - r * 0.04f);
-                c.drawRoundRect(RF, r * 0.20f, r * 0.20f, P);
-                c.drawLine(cx - r * 0.68f, cy + r * 0.34f, cx + r * 0.68f, cy + r * 0.34f, P);
-                c.drawLine(cx - r * 0.68f, cy + r * 0.70f, cx + r * 0.30f, cy + r * 0.70f, P);
+                // Authentic iOS 26 Safari Page Menu glyph (rectangle.topthird + 2 lines)
+                RF.set(cx - r * 0.72f, cy - r * 0.66f, cx + r * 0.72f, cy - r * 0.04f);
+                c.drawRoundRect(RF, r * 0.18f, r * 0.18f, P);
+                c.drawLine(cx - r * 0.70f, cy + r * 0.30f, cx + r * 0.70f, cy + r * 0.30f, P);
+                c.drawLine(cx - r * 0.70f, cy + r * 0.64f, cx + r * 0.24f, cy + r * 0.64f, P);
                 break;
             case PRIVATE:
                 c.drawLine(cx - r * 0.82f, cy - r * 0.10f, cx + r * 0.82f, cy - r * 0.10f, P);
@@ -250,11 +266,25 @@ final class Icons {
                 c.drawCircle(cx + r * 0.24f, cy + r * 0.34f, r * 0.20f, P);
                 break;
             case TRANSLATE:
-                // Minimalist SF-style translate mark (globe meridian + horizontal bar)
-                c.drawCircle(cx, cy, r * 0.78f, P);
-                RF.set(cx - r * 0.36f, cy - r * 0.78f, cx + r * 0.36f, cy + r * 0.78f);
-                c.drawOval(RF, P);
-                c.drawLine(cx - r * 0.74f, cy, cx + r * 0.74f, cy, P);
+                // Authentic Apple Safari Translate (SF Symbols translate: 文 / A dual-script mark)
+                // Top-left 文 stroke
+                c.drawLine(cx - r * 0.44f, cy - r * 0.76f, cx - r * 0.44f, cy - r * 0.54f, P);
+                c.drawLine(cx - r * 0.80f, cy - r * 0.54f, cx - r * 0.08f, cy - r * 0.54f, P);
+                PATH.reset();
+                PATH.moveTo(cx - r * 0.22f, cy - r * 0.54f);
+                PATH.quadTo(cx - r * 0.34f, cy - r * 0.08f, cx - r * 0.76f, cy + r * 0.12f);
+                c.drawPath(PATH, P);
+                PATH.reset();
+                PATH.moveTo(cx - r * 0.62f, cy - r * 0.34f);
+                PATH.quadTo(cx - r * 0.42f, cy - r * 0.12f, cx - r * 0.14f, cy + r * 0.06f);
+                c.drawPath(PATH, P);
+                // Bottom-right A stroke
+                PATH.reset();
+                PATH.moveTo(cx + r * 0.04f, cy + r * 0.74f);
+                PATH.lineTo(cx + r * 0.40f, cy - r * 0.14f);
+                PATH.lineTo(cx + r * 0.76f, cy + r * 0.74f);
+                c.drawPath(PATH, P);
+                c.drawLine(cx + r * 0.18f, cy + r * 0.46f, cx + r * 0.62f, cy + r * 0.46f, P);
                 break;
             case VPN:
                 // Shield + keyhole silhouette for NordVPN / Per-site VPN

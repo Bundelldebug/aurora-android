@@ -542,6 +542,9 @@ final class TabManager {
                 if (title != null && !title.isEmpty()) t.title = title;
                 if (!t.isPrivate) BrowserStore.recordHistory(ctx, t.title, url);
                 ExtensionManager.injectForPage(ctx, view, url, false);
+                if (Ui.autoTranslate && !t.isStartPage()) {
+                    PageTranslator.autoTranslateIfForeign(view, Ui.translateLang);
+                }
                 persistSession();
                 listener.onPageUpdated(t);
             }

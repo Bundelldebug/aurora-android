@@ -37,8 +37,8 @@ import java.util.Locale;
  * - Chrome Web Store CRX3 extensions, PWA installation, and Cloud Sync
  */
 public final class MainActivity extends Activity implements TabManager.Listener, SafariBar.Listener {
-    static final String VERSION = "9.5.5";
-    private static final int REQ_FILE_CHOOSER = 7001, REQ_SYNC_CREATE = 7002, REQ_SYNC_OPEN = 7003;
+    static final String VERSION = "9.5.6";
+    private static final int REQ_FILE_CHOOSER = 7001, REQ_SYNC_CREATE = 7002, REQ_SYNC_OPEN = 7003, REQ_START_BG = 7004;
 
     FrameLayout root;
     AuroraGlass.Backdrop backdrop;
@@ -94,6 +94,16 @@ public final class MainActivity extends Activity implements TabManager.Listener,
             @Override public void onOpenExtensions() { sheet.showExtensionsSheet(MainActivity.this); }
             @Override public void onOpenSync() { sheet.showSyncSheet(MainActivity.this); }
             @Override public void onOpenSettings() { sheet.showSettingsSheet(MainActivity.this); }
+            @Override public void onEditStartPage() { sheet.showStartPageEditSheet(MainActivity.this); }
+            @Override public void onAddFavorite() {
+                sheet.showTextInputSheet("즐겨찾기 추가", "예: youtube.com 또는 https://...", "추가", val -> {
+                    String u = val.startsWith("http://") || val.startsWith("https://") ? val : ("https://" + val);
+                    String dom = BrowserStore.domainOf(u);
+                    BrowserStore.addOrToggleBookmark(MainActivity.this, dom.isEmpty() ? val : dom, u);
+                    sheet.dismiss();
+                    startPage.rebuild();
+                });
+            }
             @Override public void onRemoveBookmark(BrowserStore.Bookmark bm) {
                 sheet.showConfirmSheet(bm.title, "즐겨찾기에서 삭제할까요?", "삭제", true, () -> {
                     BrowserStore.bookmarks.remove(bm);
@@ -189,8 +199,11 @@ public final class MainActivity extends Activity implements TabManager.Listener,
 
     private void applyTopClearance() {
         int topInset = safariBar != null ? safariBar.topContentInsetPx() : Ui.statusInset;
-        ((FrameLayout.LayoutParams) webHost.getLayoutParams()).topMargin = topInset;
-        webHost.requestLayout();
+        int botInset = safariBar != null ? safariBar.bottomContentInsetPx() : Ui.navInset;
+        FrameLayout.LayoutParams wlp = (FrameLayout.LayoutParams) webHost.getLayoutParams();
+        wlp.topMargin = topInset;
+        wlp.bottomMargin = botInset;
+        webHost.setLayoutParams(wlp);
         if (statusBarBg != null) {
             statusBarBg.getLayoutParams().height = topInset;
             statusBarBg.requestLayout();
@@ -698,8 +711,34 @@ public final class MainActivity extends Activity implements TabManager.Listener,
         });
     }
 
+    void pickStartPageWallpaper() {
+        Intent in = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        in.addCategory(Intent.CATEGORY_OPENABLE);
+        in.setType("image/*");
+        try { startActivityForResult(in, REQ_START_BG); }
+        catch (Throwable t) { Toast.makeText(this, "사진 선택기를 열 수 없습니다.", Toast.LENGTH_SHORT).show(); }
+    }
+
     @Override protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
+        if (req == REQ_START_BG) {
+            if (res == RESULT_OK && data != null && data.getData() != null) {
+                final Uri uri = data.getData();
+                ExtensionManager.IO.execute(() -> {
+                    boolean ok = StartPageView.saveCustomBg(this, uri);
+                    runOnUiThread(() -> {
+                        if (ok) {
+                            startPage.reloadBackground(this);
+                            startPage.rebuild();
+                            Toast.makeText(this, "시작 페이지 배경이 변경되었습니다.", Toast.LENGTH_SHORT).show();
+                        } else {
+                            Toast.makeText(this, "이미지를 불러오지 못했습니다.", Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                });
+            }
+            return;
+        }
         if (req == REQ_FILE_CHOOSER) {
             if (fileChooserCb != null) {
                 fileChooserCb.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(res, data));
